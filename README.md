@@ -21,9 +21,13 @@ Rex is a synthesis of three ideas:
 an S-expression, and macros operate on the same structure that everything else
 uses. This uniformity means a single set of tools works everywhere: one
 highlighter, one formatter, one structural editor, one macro system. The
-weakness of S-expressions is that the notation is impoverished — everything
-looks the same, visual structure is lost, and the syntax is unpleasant to
-write at scale.
+uniformity also enables a powerful approach to language implementation: instead
+of writing a dedicated compiler, you write macros that progressively transform
+trees. Sire, the Plunder bootstrapping language, is just 2100 lines of code
+including a compiler, parser, printer, and REPL — made possible by this
+approach. The weakness of S-expressions is that the notation is impoverished
+— everything looks the same, visual structure is lost, and the syntax is
+unpleasant to write at scale.
 
 **The runic notation of Hoon.** Hoon (the language of Urbit) is built almost
 entirely from rune poems — symbolic operators that give code visual shape and
@@ -43,6 +47,87 @@ syntax as a surface form over the same underlying tree structure. A
 Haskell-looking function definition, a Hoon-style rune poem, and an
 S-expression prefix form are all just different ways of writing the same kind
 of tree — and a macro system operates uniformly across all of them.
+
+## Examples
+
+All of the following are valid Rex. They all parse into the same kind of tree
+and are handled by the same parser, formatter, and tooling.
+
+**Runic style** — the primary style of Sire, Rex's bootstrapping language.
+Rune poems build up computation vertically, left-aligned, with `|` for
+application, `@` for let-binding, `^` for loops, `?` for lambdas:
+
+```rex
+= exampleList
+   ~   ? (sillyFn x y)
+       | sz | weld [5 -4 3]
+            | map add-x [1 #(x+4 * y)]
+   ~   + user: %sol
+       + repo: b"plunder"
+       + path: /home/sol/r/plunder
+```
+
+**Haskell-like style** — type signatures, function definitions, pattern
+matching. Juxtaposition for application, tight infix for cons, spaced infix
+for operators, block mode for bodies:
+
+```rex
+map : (a -> b) -> [a] -> [b]
+map f []     = []
+map f (x:xs) = (f x : map f xs)
+
+def quicksort xs:
+    match xs:
+        []     -> []
+        (h:ts) ->
+            less    = filter <h ts
+            greater = filter >=h ts
+            quicksort less ++ [h] ++ quicksort greater
+```
+
+**Python-like blocks** — trailing rune opens a block, indented lines become
+items:
+
+```rex
+def foo(x, y):
+    x += y
+    return x
+```
+
+**Configuration** — Rex handles JSON, TOML, and YAML-style data naturally.
+Curly braces for records, tight infix for field access, quips for bare values:
+
+```rex
+{
+  title: "TOML Example",
+  owner: {
+    name: "Tom Preston-Werner",
+    dob:  '1979-05-27T07:32:00-08:00,
+  },
+  database: {
+    enabled: true,
+    ports:   [8000, 8001, 8002],
+  }
+}
+```
+
+**Prefix notation** — the S-expression fallback, always available:
+
+```rex
+(:= (/ x y)
+ (| if (= y 0) (!! "Error: divide-by-zero")
+  (| if (< x y) 0
+   (# (+ 1 (/ (- x y) y))))))
+```
+
+The same expression in ergonomic Rex:
+
+```rex
+:= x/y
+ | if y=0 !!{Error: divide-by-zero}
+ | if x<y 0
+ | #(1 + (x-y / y))
+```
 
 ## Rex in the Plunder Ecosystem
 
@@ -70,6 +155,8 @@ downstream consumers.
 ## Documentation
 
 - [rex-syntax-guide.md](doc/rex-syntax-guide.md) — introduction to the Rex notation for language users and designers
+- [examples.md](doc/examples.md) — annotated Rex examples covering the full range of the notation
+- [hoon-comparison.md](doc/hoon-comparison.md) — Rex compared to Hoon, with side-by-side examples
 - [parsing.md](doc/parsing.md) — reference guide to the pipeline passes and structural rules
 - [printing.md](doc/printing.md) — notes on the pretty-printing design and status
 - [rex-syntax-informal.md](doc/rex-syntax-informal.md) — informal grammar and parsing notes

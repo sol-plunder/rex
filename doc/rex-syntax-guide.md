@@ -6,6 +6,24 @@ Rex is a universal tree notation — a more expressive successor to S-expression
 
 Like S-expressions, Rex represents code and data as trees of operators applied to arguments. Unlike S-expressions, Rex provides a rich set of composable syntactic mechanisms — operator precedence, infix notation, indentation-based layout, juxtaposition, and multiple string types — so that the surface syntax can look like Haskell, Python, or whatever a language designer prefers, while the underlying representation remains uniform and machine-manipulable.
 
+Before getting into the details: despite the surface variety, Rex collapses
+down to three structural forms.
+
+    leaf                    -- an atomic token: word, string, or quoted form
+    BRACKET(rune form*)     -- a rune applied to zero or more children,
+                            -- tagged with a bracket type: () [] {} or none
+    form JUXT form          -- two forms placed immediately adjacent
+
+The bracket type is part of the tree — `{x:3}`, `(x:3)`, and `[x:3]` all
+produce different nodes. Downstream languages assign meaning to the
+difference: perhaps `()` for grouping, `[]` for lists, `{}` for records.
+Rex preserves the distinction but doesn't interpret it.
+
+Everything else — tight infix, tight prefix, spaced infix, layout poems,
+blocks — is a different surface encoding of one of these three things.
+The syntactic richness is entirely in the encoding layer; the underlying
+tree structure is simple and uniform.
+
 The entire lexer, parser, and pretty-printer fits in roughly 1500 lines of C — orders of magnitude smaller than the parsers of languages like Haskell or Rust — yet it is expressive enough to emulate their syntax.
 
 ## Design Philosophy
@@ -98,6 +116,15 @@ The `infix_rex` function collects all runes in the nest, sorts them by precedenc
     map : (a -> b) -> [a] -> [b]
 
 The `:` splits first (lowest precedence), giving `map` on the left and the type on the right. Then `->` splits the type into a chain of arrow types. The result is exactly the tree you want for a type signature.
+
+Multiple tokens between two infix runes are implicitly grouped into a single
+child:
+
+    (a + f x + d)  =>  (+ a (f x) d)
+
+The `f x` between the two `+` runes becomes one grouped child rather than two
+separate children. This is what makes multi-argument expressions work naturally
+inside infix forms without extra parentheses.
 
 ### Nest Prefix
 
@@ -295,9 +322,27 @@ Syntax highlighting helps enormously with discoverability. When `') comment` is 
 
 Rex is homoiconic: code is represented as data structures that the language can manipulate. Every Rex program is a tree of nodes, and the syntax can express arbitrary trees. A macro system operates on Rex trees — it doesn't need to know about syntax, it just transforms trees into other trees.
 
+Homoiconic languages parse in three stages:
+
+1. Text → uniform tree
+2. Uniform tree → macro-expanded tree
+3. Expanded tree → internal AST / evaluation
+
+Stage 2 is only possible because stage 1 produces a uniform structure that
+user-defined functions can operate on. Languages that don't share a uniform
+notation have to bake all syntax into the parser and lose this capability
+entirely.
+
 Want to add `where` clauses to a language? Pattern guards? Do-notation? Those are macros that rewrite trees. In Haskell, each of those required careful syntax design and parser changes. In Rex, the parser never changes.
 
 This is the same promise that Lisp delivers, but without requiring everything to be written in prefix notation. And unlike Lisp, where reader macros create language-specific syntax extensions that fragment the ecosystem, Rex macros operate on the uniform tree representation. Tooling never breaks because the syntax layer is always the same.
+
+Macros can also work in the other direction: instead of using them to *extend*
+a language, you can use them to *shrink* it — moving core language features
+into libraries rather than the runtime. This keeps the foundational layer
+small and auditable. TinyScheme, embedded in GIMP, is 5000 lines of C kept
+small by exactly this approach. Rex makes the same tradeoff available to any
+language built on it.
 
 ## Putting It Together: Haskell-Like Syntax
 
