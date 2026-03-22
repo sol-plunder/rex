@@ -103,9 +103,18 @@ a.b.c       ') field access chain
 foo/[bar]   ') tight infix with a bracket form on the right
 ```
 
-Tight infix always uses a single rune — two adjacent rune characters lex as
-one token, so `a+*b` would be a single rune `+*`, not two. This makes tight
-infix naturally unambiguous.
+Tight infix uses the same precedence ordering as spaced infix — determined
+by the first character of each rune, from loosest (`,`) to tightest (`.`).
+So mixing runes in tight infix works too:
+
+```rex
+a.b+c       ') => (+ (. a b) c)   -- . binds tighter than +
+x:xs++ys    ') => (: x (++ xs ys)) -- : binds looser than ++
+```
+
+A tight infix expression always uses a single rune token — two adjacent rune
+characters lex as one token, so `a+*b` would be the single rune `+*`, not
+`+` and `*` separately.
 
 ---
 
@@ -182,6 +191,21 @@ A rune immediately preceding a token (no space) creates a tight prefix form:
 
 Tight prefix composes with tight infix: `+a.b` parses as `+` applied to
 `a.b` (the whole tight infix chain), not as `(+a).b`.
+
+---
+
+## Mixing Tight and Spaced Infix
+
+Tight and spaced infix compose naturally — tight infix always binds tighter
+than any spaced infix, regardless of the runes involved. This means you can
+write mixed expressions without extra parentheses:
+
+```rex
+(x:xs ++ ys)        ') => (++ (: x xs) ys)
+(a.b + c.d)         ') => (+ (. a b) (. c d))
+```
+
+The tight forms are resolved first, then the spaced infix groups the results.
 
 ---
 
