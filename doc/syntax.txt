@@ -1,0 +1,39 @@
+Lexemes:
+
+    EOL   -- newline
+    WYTE  -- non-newline whitespace
+    BEGIN -- ( [ { or end-of-block
+    END   -- ) ] } or end-of-block
+    CLMP  -- a rune with has clump-stuff after it (not space or end)
+    FREE  -- a rune which is followed by a wyte/eol/end
+    WORD  -- identifier (0, hi, hello)
+    TRAD  -- "hello" (normal string)
+    TICK  -- ' (quip marker)
+    UGLY  -- Block String
+    SLUG  -- Light Block String
+    BAD   -- some sort of invalid input
+
+Grammar:
+
+    leaf   = WORD | TRAD | UGLY | SLUG | BAD
+    node   = leaf | nest | quip
+    clump  = CLMP? node (CLMP node)*
+    quip   = TICK clump | TICK poem
+    nest   = BEGIN inner? END
+    slot   = clump | poem
+    inner  = block | (slot+ (FREE slot+)* FREE?)
+    poem   = FREE slot*
+    block  = slot+ FREE (EOL WYTE*)+ item+
+    item   = inner
+
+Informal Rules:
+
+-   A poem is broken by an END input or any input token which is
+    indented less than the poem.
+
+-  In block, the first item must be indented more than the slot,
+   or the production doesn't match.
+
+-  An item is broken by an END input or by an input token which is
+   indented less then the item.  If any input token is indented at
+   the *same* level as the item, the item ends and a new item begins.

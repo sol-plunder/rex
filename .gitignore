@@ -1,0 +1,6 @@
+o.rex
+.Makefile.swp
+**/*.swp
+.direnv
+*~dist-newstyle
+dist-newstyle/

@@ -1,0 +1,77 @@
+cabal-version: 3.0
+
+name:           rex
+version:        0.1.0.0
+synopsis:       Rex: A universal tree notation
+description:    Rex is a structural normalizer that transforms source text into
+                Rex trees via a sequence of passes: lexing, block splitting,
+                quotation normalization, structural grouping, and classification.
+homepage:       https://github.com/sol-plunder/rex
+bug-reports:    https://github.com/sol-plunder/rex/issues
+author:         xoCore Technologies, Benjamin Summers
+maintainer:
+copyright:      2026 xoCore Technologies, Benjamin Summers
+license:        MIT
+license-file:   LICENSE
+build-type:     Simple
+
+source-repository head
+  type:     git
+  location: https://github.com/sol-plunder/rex
+
+
+-- The Rex pipeline: lexer, structural parser, Rex IR, and printer.
+library
+  exposed-modules:
+      Rex.Lex
+      Rex.Tree2
+      Rex.Rex
+      Rex.Print
+      Rex.Test
+  other-modules:
+      Lib
+      LowLib
+  hs-source-dirs:   src/hs
+  ghc-options:      -Wall -Wcompat
+  build-depends:
+      base             >= 4.7 && < 5
+    , ansi-wl-pprint
+    , extra
+    , optics
+    , pretty-show
+  default-language: Haskell2010
+
+
+executable rex
+  main-is:        Main.hs
+  hs-source-dirs: src/hs
+  other-modules:
+      Rex.Lex
+      Rex.Tree2
+      Rex.Rex
+      Rex.Print
+      Rex.Test
+      Lib
+      LowLib
+  ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base             >= 4.7 && < 5
+    , ansi-wl-pprint
+    , extra
+    , optics
+    , pretty-show
+  default-language: Haskell2010
+
+
+test-suite rex-test
+  type:           exitcode-stdio-1.0
+  main-is:        Test.hs
+  hs-source-dirs: src/hs
+  other-modules:
+      Rex.Lex
+      Rex.Tree2
+      Rex.Rex
+  ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base  >= 4.7 && < 5
+  default-language: Haskell2010
