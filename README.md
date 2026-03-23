@@ -217,11 +217,6 @@ nodes with a `wide` size and choosing between wide and tall rendering — but
 heir handling, tight infix unwrapping, and juxtaposition wrapping rules are all
 incomplete or buggy.
 
-`Rex.Tree2` preserves source position and extent for every node, which was
-partly motivated by the idea that the pretty-printer could use the original
-source structure as a layout hint — sidestepping parts of the invertibility
-problem by anchoring to what the user originally wrote.
-
 ## Next Steps
 
 1. Solve the pretty-printer and integrate it into the Haskell pipeline.
