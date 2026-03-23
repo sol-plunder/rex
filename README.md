@@ -148,7 +148,7 @@ every layer of the stack.
 ## What Rex Is Not
 
 Rex is a *structural normalizer*, not a parser in the traditional sense. It
-assigns no semantics, no operator precedence beyond grouping, no types, and no
+assigns no semantics, no types, and no
 evaluation rules. It transforms text into trees. Meaning is assigned by
 downstream consumers.
 
