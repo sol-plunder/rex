@@ -29,6 +29,8 @@ library
       Rex.Print
       Rex.Test
       Rex.PDoc
+      Rex.PrintTree
+      Rex.PrintTreeTest
   other-modules:
       Lib
       LowLib
@@ -52,9 +54,11 @@ executable rex
       Rex.Rex
       Rex.Print
       Rex.Test
-      Rex.PDoc
       Lib
       LowLib
+      Rex.PDoc
+      Rex.PrintTree
+      Rex.PrintTreeTest
   ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base             >= 4.7 && < 5
