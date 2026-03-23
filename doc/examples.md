@@ -3,10 +3,10 @@
 A collection of Rex examples illustrating the range of the notation.
 
 Despite the surface variety, every example here collapses down to three
-structural forms:
+conceptual forms:
 
     leaf                      -- an atomic token: word, string, or quoted form
-    BRACKET(rune form*)       -- a rune applied to zero or more children,
+    NEST(rune form*)          -- a rune applied to zero or more children,
                               -- tagged with a bracket type: () [] {} or none
     form JUXT form            -- two forms placed immediately adjacent
 
@@ -19,13 +19,24 @@ Tight infix, tight prefix, layout poems, blocks — all of it is just different
 ways of encoding one of these three things. Keep that in mind while reading:
 the tree underneath is always simple.
 
-The cases where you might have infix with no bracket are at the top level or in block items:
+
+## Bracket Types
+
+The normal nesting types are obvious. parens is `(x : 3)`, etc.  But what is the "clear" nesting type?
+
+One example is with multiple layers of infix:  `{x : 3, y : 4}`.  The coma node has brackets, but
+the colon nodes (`x : 3`) have no visible delimiters, so they are "clear" nesting.  Similarly,
+with `(f x, g x)`.  The `f x` node has a "clear" nesting.
+
+Two more cases are with using infix at the outermost layer, and with using infix in block items:
 
 ```rex
-x = 3   ') infix
+x = 3   ') clear infix
+print x ') clear prefix
 
-block:
-   x = 3 ') infix
+block
+   x = 3   ') clear infix
+   print x ') clear prefix
 ```
 
 ---
