@@ -14,11 +14,9 @@ uses. This uniformity means a single set of tools works everywhere: one
 highlighter, one formatter, one structural editor, one macro system. The
 uniformity also enables a powerful approach to language implementation: instead
 of writing a dedicated compiler, you write macros that progressively transform
-trees. Sire, the Plunder bootstrapping language, is just 2100 lines of code
-including a compiler, parser, printer, and REPL — made possible by this
-approach. The weakness of S-expressions is that the notation is impoverished
+trees. The weakness of S-expressions is that the notation is impoverished
 — everything looks the same, visual structure is lost, and the syntax is
-unpleasant to write at scale.
+unpleasant to write at scale.  It works well enough for Lisp, but once languages introduce a richer range of concepts, like in modern languages like Haskell or Rust, the notation starts to become very cumbersome.
 
 **The runic notation of Hoon.** Hoon (the language of Urbit) is built almost
 entirely from rune poems — symbolic operators that give code visual shape and
