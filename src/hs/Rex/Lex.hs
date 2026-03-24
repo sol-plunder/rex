@@ -10,7 +10,7 @@ import Data.List (sortBy, nubBy)
 -- Token Types -----------------------------------------------------------------
 
 data TokTy = BAD | EOL | EOF | WYTE | BEGIN | END | CLMP | FREE | WORD | TRAD
-           | QUIP | PAGE | SPAN | SLUG | EOB
+           | QUIP | UGLY | SLUG | EOB
   deriving (Eq, Show)
 
 data Tok = Tok
@@ -86,11 +86,8 @@ tick tcol to rest =
                 n           = 1 + length qs
                 col0        = tcol + n
                 off0        = to + length qs
-            in case body0 of
-                ('\n':_) -> let (tok, r, c', o') = lexPage tcol tickOff n col0 off0 body0
-                            in ([tok], r, c', o')
-                _        -> let (tok, r, c', o') = lexSpan tcol tickOff n col0 off0 body0
-                            in ([tok], r, c', o')
+                (tok, r, c', o') = lexUgly tcol tickOff n col0 off0 body0
+            in ([tok], r, c', o')
         | c `elem` ")]}" ->
             let (tok, r, c', o') = lexNote tcol tickOff rest to
             in ([tok], r, c', o')
@@ -111,68 +108,30 @@ lexNote sc so xs xo =
        , xo + length ln
        )
 
--- PAGE strings (block form: '''\n content\n''')
-lexPage :: Int -> Int -> Int -> Int -> Int -> String -> (Tok, String, Int, Int)
-lexPage tcol tokOff n col0 off0 xs =
-  let (lit, rest, poison, colEnd, offEnd) = scanPage False 0 (col0-1) (off0-1) xs
-      ty' = if poison then BAD else PAGE
+-- UGLY strings ('''-delimited, either block or inline form)
+-- The lexer just matches tick sequences; validation happens in Rex loading.
+lexUgly :: Int -> Int -> Int -> Int -> Int -> String -> (Tok, String, Int, Int)
+lexUgly tcol tokOff n col0 off0 xs =
+  let (lit, rest, closed, colEnd, offEnd) = scanUgly 0 (col0-1) (off0-1) xs
+      ty' = if closed then UGLY else BAD
       raw = replicate n '\'' ++ lit
   in (Tok ty' tcol tokOff (offEnd - tokOff) raw, rest, colEnd, offEnd)
  where
-  -- ud (under-indent threshold) is tcol for block form
-  ud = tcol
-
-  scanPage :: Bool -> Int -> Int -> Int -> String -> (String, String, Bool, Int, Int)
-  scanPage poison' run col' off' = \case
-    [] -> ([], [], True, col', off')
+  scanUgly :: Int -> Int -> Int -> String -> (String, String, Bool, Int, Int)
+  scanUgly run col' off' = \case
+    [] -> ([], [], False, col', off')  -- unclosed = BAD
     ch:cs ->
       let col'' = if ch=='\n' then 0 else col'+1
           off'' = off' + 1
-          -- col' is 0-indexed, ud is 1-indexed, so compare col'+1 < ud
-          poison'' = poison' || (col'+1 < ud && ch/=' ' && ch/='\n')
       in if ch=='\''
            then let run' = run+1
                 in if run' == n
-                     then let startCol  = col' - n + 2  -- +2 to convert from 0-indexed scan to 1-indexed tcol
-                              poisonEnd = poison'' || (startCol /= tcol)
-                          -- Return the closing quotes
-                          in (replicate n '\'', cs, poisonEnd, col'', off'')
-                     else let (a,b,p,k,o) = scanPage poison'' run' col'' off'' cs
-                          in (a, b, p, k, o)
+                     then (replicate n '\'', cs, True, col'', off'')
+                     else let (a,b,closed,k,o) = scanUgly run' col'' off'' cs
+                          in (a, b, closed, k, o)
            else let pending = replicate run '\''
-                    (a,b,p,k,o) = scanPage poison'' 0 col'' off'' cs
-                in (pending ++ ch:a, b, p, k, o)
-
--- SPAN strings (inline form: '''content''')
--- Like TRAD: continuation lines must be indented past opening column
-lexSpan :: Int -> Int -> Int -> Int -> Int -> String -> (Tok, String, Int, Int)
-lexSpan tcol tokOff n col0 off0 xs =
-  let (lit, rest, poison, colEnd, offEnd) = scanSpan False 0 (col0-1) (off0-1) xs
-      ty' = if poison then BAD else SPAN
-      raw = replicate n '\'' ++ lit
-  in (Tok ty' tcol tokOff (offEnd - tokOff) raw, rest, colEnd, offEnd)
- where
-  -- ud (under-indent threshold) is col0 for inline form (like TRAD)
-  ud = col0
-
-  scanSpan :: Bool -> Int -> Int -> Int -> String -> (String, String, Bool, Int, Int)
-  scanSpan poison' run col' off' = \case
-    [] -> ([], [], True, col', off')
-    ch:cs ->
-      let col'' = if ch=='\n' then 0 else col'+1
-          off'' = off' + 1
-          -- col' is 0-indexed, ud is 1-indexed, so compare col'+1 < ud
-          poison'' = poison' || (col'+1 < ud && ch/=' ' && ch/='\n')
-      in if ch=='\''
-           then let run' = run+1
-                in if run' == n
-                     then -- No column check for closing ''' in SPAN (unlike PAGE)
-                          (replicate n '\'', cs, poison'', col'', off'')
-                     else let (a,b,p,k,o) = scanSpan poison'' run' col'' off'' cs
-                          in (a, b, p, k, o)
-           else let pending = replicate run '\''
-                    (a,b,p,k,o) = scanSpan poison'' 0 col'' off'' cs
-                in (pending ++ ch:a, b, p, k, o)
+                    (a,b,closed,k,o) = scanUgly 0 col'' off'' cs
+                in (pending ++ ch:a, b, closed, k, o)
 
 -- SLUG strings
 lexSlug :: Int -> Int -> String -> (Tok, String)

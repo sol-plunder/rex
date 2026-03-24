@@ -16,7 +16,7 @@ import Data.List  (nubBy, sortBy)
 
 -- Rex Data Model --------------------------------------------------------------
 
-data LeafShape = WORD | QUIP | TRAD | PAGE | SPAN | SLUG
+data LeafShape = WORD | QUIP | TRAD | PAGE | SPAN | SLUG | BAD
   deriving (Eq, Show)
 
 data Color = PAREN | BRACK | CURLY | CLEAR
@@ -61,10 +61,9 @@ leafToRex :: Int -> Leaf -> Rex
 leafToRex col = \case
     L_WORD s -> LEAF WORD s
     L_TRAD s -> LEAF TRAD (stripTrad col s)
-    L_PAGE s -> LEAF PAGE (stripPage col s)
-    L_SPAN s -> LEAF SPAN (stripSpan col s)
+    L_UGLY s -> stripUgly col s
     L_SLUG s -> LEAF SLUG (stripSlug s)
-    L_BAD  s -> LEAF WORD s  -- BAD tokens are errors, don't process
+    L_BAD  s -> LEAF BAD s
 
 -- | Strip a TRAD string: remove quotes, strip leading whitespace from
 -- continuation lines based on opening quote column.
@@ -76,49 +75,65 @@ stripTrad col s =
             _         -> stripContinuations col rest  -- unclosed, just strip open quote
         _ -> s  -- no quotes, leave as is
 
--- | Strip a PAGE string: remove ''' delimiters, strip leading whitespace
--- from all lines based on opening quote column.
-stripPage :: Int -> String -> String
-stripPage col s =
+-- | Process an UGLY string: classify as PAGE or SPAN, then strip accordingly.
+-- PAGE: starts with newline after ticks, strip depth determined by terminator indent
+-- SPAN: inline content, strip continuation lines based on content column
+stripUgly :: Int -> String -> Rex
+stripUgly col s =
     let (ticks, afterOpen) = span (== '\'') s
         n = length ticks
-    in if n >= 3
-       then let closeTicks = replicate n '\''
-                -- Find and remove closing ticks
-                content = removeClosing closeTicks afterOpen
-                -- Strip the leading newline if present, then strip each line
-            in case content of
-                '\n':rest -> stripAllLines col rest
-                _         -> stripAllLines col content
-       else s  -- not a valid ugly string, leave as is
+    in if n >= 2
+       then case afterOpen of
+                '\n':rest -> stripPage n rest
+                _         -> LEAF SPAN (stripSpan col n afterOpen)
+       else LEAF SPAN s  -- shouldn't happen, but fallback
   where
-    removeClosing ticks str =
-        let revTicks = reverse ticks
-            revStr = reverse str
-        in if take (length ticks) revStr == revTicks
-           then reverse (drop (length ticks) revStr)
-           else str  -- no closing ticks found
+    -- PAGE: strip depth comes from terminator line's indentation
+    stripPage :: Int -> String -> Rex
+    stripPage n content =
+        let contentLines = lines content
+        in case reverse contentLines of
+            [] -> LEAF PAGE ""
+            (lastLine:revRest) ->
+                let closeTicks = replicate n '\''
+                    (spaces, afterSpaces) = span (== ' ') lastLine
+                    stripDepth = length spaces
+                    bodyLines = reverse revRest
+                in if afterSpaces == closeTicks && all (validPageLine stripDepth) bodyLines
+                   then let stripped = map (stripLineForPage stripDepth) bodyLines
+                        in LEAF PAGE (unlines' stripped)
+                   else LEAF BAD s
 
--- | Strip a SPAN string: remove ''' delimiters, strip continuation indent.
--- Continuation lines must be indented to the content column (after '''),
--- so we strip (col + n - 1) where n is the number of ticks.
-stripSpan :: Int -> String -> String
-stripSpan col s =
-    let (ticks, afterOpen) = span (== '\'') s
-        n = length ticks
-    in if n >= 3
-       then let closeTicks = replicate n '\''
-                content = removeClosing closeTicks afterOpen
-                -- Strip to align with content column (after the ticks)
-            in stripContinuations (col + n - 1) content
-       else s  -- not a valid span string, leave as is
-  where
+    -- Check if a line is valid for PAGE: blank lines are always valid,
+    -- non-blank lines must have at least `depth` leading spaces
+    validPageLine :: Int -> String -> Bool
+    validPageLine depth line
+        | all (== ' ') line = True  -- blank lines are always valid
+        | otherwise         = all (== ' ') (take depth line) && length line >= depth
+
+    -- SPAN: strip depth is content column (after ticks)
+    stripSpan :: Int -> Int -> String -> String
+    stripSpan openCol n content =
+        let closeTicks = replicate n '\''
+            body = removeClosing closeTicks content
+            contentCol = openCol + n - 1  -- column where content starts
+        in stripContinuations contentCol body
+
     removeClosing ticks str =
         let revTicks = reverse ticks
             revStr = reverse str
         in if take (length ticks) revStr == revTicks
            then reverse (drop (length ticks) revStr)
-           else str  -- no closing ticks found
+           else str
+
+    -- Strip a line for PAGE: blank lines pass through, others get stripped
+    stripLineForPage :: Int -> String -> String
+    stripLineForPage depth line
+        | all (== ' ') line = ""  -- blank line -> empty
+        | otherwise         = stripN depth line
+
+    unlines' [] = ""
+    unlines' xs = init (unlines xs)
 
 -- | Strip a SLUG string: remove "' " prefix from each line.
 stripSlug :: String -> String
@@ -150,23 +165,6 @@ unescapeQuotes :: String -> String
 unescapeQuotes [] = []
 unescapeQuotes ('"':'"':rest) = '"' : unescapeQuotes rest
 unescapeQuotes (c:rest) = c : unescapeQuotes rest
-
--- | Strip leading whitespace from all lines based on column.
--- Drops exactly one trailing empty line if present (this is the structural
--- line containing only the closing ''' indent, not actual content).
-stripAllLines :: Int -> String -> String
-stripAllLines col s =
-    case lines s of
-        [] -> ""
-        ls -> unlines' (dropOneTrailingEmpty (map (stripN col) ls))
-  where
-    unlines' [] = ""
-    unlines' xs = init (unlines xs)
-
-    -- Drop at most one trailing empty line (the ''' indent line)
-    dropOneTrailingEmpty xs = case reverse xs of
-        ("":rest) -> reverse rest
-        _         -> xs
 
 -- | Strip up to n leading spaces from a string.
 stripN :: Int -> String -> String

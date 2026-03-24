@@ -41,9 +41,9 @@ x.b'''
 
 === juxt with multiline page | 80
 foo'''
-    line one
-    line two
-    '''
+   line one
+   line two
+   '''
 
 === dot chain with page | 80
 a.b.c'''

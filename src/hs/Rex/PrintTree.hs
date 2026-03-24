@@ -41,8 +41,7 @@ printLeaf :: Leaf -> PDoc
 printLeaf = \case
     L_WORD s -> pdocText s
     L_TRAD s -> pdocText s
-    L_PAGE s -> pdocText s
-    L_SPAN s -> pdocText s
+    L_UGLY s -> pdocText s
     L_SLUG s -> pdocText s
     L_BAD  s -> pdocText s   -- render bad tokens as-is
 

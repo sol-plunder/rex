@@ -81,3 +81,51 @@ line two
                   line one
                   line two
                   '''
+
+-- Flexible page strings (terminator indent determines strip depth)
+
+=== flexible page nix style | 80
+x = '''
+  indented content
+  more content
+'''
+---
+x = '''
+      indented content
+      more content
+    '''
+
+=== flexible page partial strip | 80
+x = '''
+    4 spaces
+    of indent
+  '''
+---
+x = '''
+      4 spaces
+      of indent
+    '''
+
+=== flexible page with blank line | 80
+x = '''
+  line one
+
+  line two
+'''
+---
+x = '''
+      line one
+
+      line two
+    '''
+
+=== flexible page in poem | 80
++ foo '''
+    content
+    here
+  '''
+---
++ foo '''
+        content
+        here
+      '''

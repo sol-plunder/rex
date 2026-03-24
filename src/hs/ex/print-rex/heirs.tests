@@ -21,3 +21,8 @@
 === heir with nested poems | 80
 + x | a b
 + y | c d
+
+=== multi-char rune heir | 80
+:| sire
+:| stew_misc
+:| set

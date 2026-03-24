@@ -80,6 +80,7 @@ formatLeafSingle TRAD s = "\"" ++ escapeQuotes s ++ "\""
 formatLeafSingle PAGE _ = error "PAGE should use formatPageMulti"
 formatLeafSingle SPAN s = "'''" ++ s ++ "'''"
 formatLeafSingle SLUG s = "' " ++ s
+formatLeafSingle BAD  s = s  -- print BAD tokens as-is
 
 -- | Escape quotes for TRAD strings: " becomes ""
 escapeQuotes :: String -> String
@@ -95,6 +96,7 @@ formatLeafMulti PAGE s = formatPageMulti (lines s)
 formatLeafMulti SPAN s = formatSpanMulti (lines s)
 formatLeafMulti WORD s = pdocText s  -- shouldn't have newlines, but handle anyway
 formatLeafMulti QUIP s = pdocText s  -- shouldn't have newlines
+formatLeafMulti BAD  s = pdocText s  -- print BAD tokens as-is
 
 -- | Format multi-line SLUG: each line prefixed with "' "
 -- Uses PDent to capture the column for alignment
@@ -118,13 +120,21 @@ formatTradMulti (l:ls) =
 
 -- | Format multi-line PAGE: block form with ''' delimiters
 -- Opening and closing ''' must be at the same column
+-- Blank lines are emitted without indentation
 formatPageMulti :: [String] -> PDoc
 formatPageMulti ls =
     PDent (PCat (pdocText "'''") (PCat PLine (PCat (pageContent ls) (PCat PLine (pdocText "'''")))))
   where
     pageContent [] = PEmpty
     pageContent [x] = pdocText x
-    pageContent (x:xs) = PCat (pdocText x) (PCat PLine (pageContent xs))
+    pageContent (x:xs) = PCat (pdocText x) (PCat (pageLine (head' xs)) (pageContent xs))
+
+    -- Use raw newline for blank lines to avoid indentation
+    pageLine "" = PText 1 "\n"
+    pageLine _  = PLine
+
+    head' [] = ""
+    head' (h:_) = h
 
 -- | Format multi-line SPAN: inline form with ''' delimiters
 -- PDent is set after ''' so continuation lines align to the content column.
@@ -297,31 +307,29 @@ openRestAfterOpen (k:ks)
 
 -- HEIR: Vertical siblings at same column ----------------------------------------
 --
--- Each element appears at the exact same column, separated by newlines.
--- For OPEN children, align to the last character of the rune.
--- E.g., ":= x/y" followed by "| if ..." needs the "|" at column 1.
---
--- The alignment is determined by the first child's rune length.
+-- Each element appears aligned by the last character of their runes.
+-- E.g., ":= x/y" followed by "| if ..." has "|" aligned with "=" (column 2).
+-- But ":| a" followed by ":| b" has both starting at column 1.
 
 heirDoc :: [Rex] -> PDoc
 heirDoc []     = PEmpty
 heirDoc [k]    = rexDoc k
 heirDoc (k:ks) =
-    let runeIndent = case k of
-            OPEN r _ -> length r - 1  -- align to last char of rune
-            _        -> 0
-    in PDent (PCat (heirFirst runeIndent k) (heirRest runeIndent ks))
+    let firstRuneLen = case k of
+            OPEN r _ -> length r
+            _        -> 1
+    in PDent (PCat (rexDoc k) (heirRest firstRuneLen ks))
 
--- | Render the first heir element
-heirFirst :: Int -> Rex -> PDoc
-heirFirst _ k = rexDoc k
-
--- | Render remaining heir elements with proper indentation
+-- | Render remaining heir elements with alignment based on first rune
 heirRest :: Int -> [Rex] -> PDoc
-heirRest _      []     = PEmpty
-heirRest indent (k:ks) =
-    let padding = pdocText (replicate indent ' ')
-    in PCat PLine (PCat padding (PCat (rexDoc k) (heirRest indent ks)))
+heirRest _            []     = PEmpty
+heirRest firstRuneLen (k:ks) =
+    let currentRuneLen = case k of
+            OPEN r _ -> length r
+            _        -> 1
+        padding = max 0 (firstRuneLen - currentRuneLen)
+        pad = if padding > 0 then pdocText (replicate padding ' ') else PEmpty
+    in PCat PLine (PCat pad (PCat (rexDoc k) (heirRest firstRuneLen ks)))
 
 
 -- BLOC: Block forms like f =\n  a\n  b ------------------------------------------

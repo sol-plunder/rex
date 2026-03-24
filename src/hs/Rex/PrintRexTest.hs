@@ -9,6 +9,12 @@
 -- Tests are loaded from src/hs/ex/print-rex/*.tests in the format:
 --   === test name | width
 --   code that should round-trip exactly...
+--
+-- Or with explicit expected output:
+--   === test name | width
+--   input code
+--   ---
+--   expected output
 
 module Rex.PrintRexTest (printRexTestMain, printRexTestMainIO) where
 
@@ -25,9 +31,10 @@ import System.FilePath ((</>), takeExtension)
 -- Test Data Structure ---------------------------------------------------------
 
 data Test = Test
-    { testName  :: String
-    , testWidth :: Int
-    , testCode  :: String
+    { testName     :: String
+    , testWidth    :: Int
+    , testInput    :: String
+    , testExpected :: String  -- same as input for round-trip tests
     }
 
 
@@ -52,12 +59,24 @@ parseTests ls lineNum
                     let (codeLines, remaining) = break isHeaderLine rest
                         -- Strip trailing blank/comment lines from code
                         codeLines' = dropWhileEnd isBlankOrComment codeLines
-                        code = unlines' codeLines'
-                        test = Test name width code
+                        (input, expected) = splitInputExpected codeLines'
+                        test = Test name width input expected
                         nextLine = newLineNum + 1 + length codeLines
                     in case parseTests remaining nextLine of
                         Left err -> Left err
                         Right ts -> Right (test : ts)
+
+-- | Split code lines into input and expected output.
+-- If "---" separator is present, splits there; otherwise both are the same.
+splitInputExpected :: [String] -> (String, String)
+splitInputExpected ls =
+    case break (== "---") ls of
+        (inputLines, []) ->
+            let code = unlines' inputLines
+            in (code, code)  -- round-trip test
+        (inputLines, _:expectedLines) ->
+            let expectedLines' = dropWhileEnd isBlankOrComment expectedLines
+            in (unlines' inputLines, unlines' expectedLines')
 
 parseHeader :: String -> Maybe (String, Int)
 parseHeader s = case stripPrefix "=== " s of
@@ -89,33 +108,34 @@ unlines' xs = init (unlines xs)
 -- Test Runner -----------------------------------------------------------------
 
 run :: Test -> (Bool, String)
-run (Test name width code) =
-    case parseRex code of
+run (Test name width input expected) =
+    case parseRex input of
         [] -> (False, unlines
             [ "  FAIL " ++ name
-            , "    parse returned no trees for: " ++ show code
+            , "    parse returned no trees for: " ++ show input
             ])
         [(slice, tree)] ->
             case rexFromBlockTree slice tree of
                 Nothing -> (False, unlines
                     [ "  FAIL " ++ name
-                    , "    rexFromBlockTree returned Nothing for: " ++ show code
+                    , "    rexFromBlockTree returned Nothing for: " ++ show input
                     ])
                 Just rex ->
                     let actual = printRex width rex
-                        ok     = actual == code
+                        ok     = actual == expected
                     in if ok
                        then (True, "  OK   " ++ name)
                        else (False, unlines
                                [ "  FAIL " ++ name
                                , "    width:    " ++ show width
-                               , "    code:     " ++ show code
-                               , "    printed:  " ++ show actual
+                               , "    input:    " ++ show input
+                               , "    expected: " ++ show expected
+                               , "    actual:   " ++ show actual
                                ])
         results -> (False, unlines
             [ "  FAIL " ++ name
             , "    parse returned multiple trees (" ++ show (length results)
-              ++ ") for: " ++ show code
+              ++ ") for: " ++ show input
             ])
 
 
