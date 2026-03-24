@@ -146,6 +146,8 @@ downstream consumers.
 - [rex-syntax-guide.md](doc/rex-syntax-guide.md) — introduction to the Rex notation for language users and designers
 - [examples.md](doc/examples.md) — annotated Rex examples covering the full range of the notation
 - [hoon-comparison.md](doc/hoon-comparison.md) — Rex compared to Hoon, with side-by-side examples
+- [nix-comparison.md](doc/nix-comparison.md) — Nix configuration syntax mapped to Rex
+- [c-comparison.md](doc/c-comparison.md) — C code mapped to Rex
 - [parsing.md](doc/parsing.md) — reference guide to the pipeline passes and structural rules
 - [printing.md](doc/printing.md) — notes on the pretty-printing design and status
 - [rex-syntax-informal.md](doc/rex-syntax-informal.md) — informal grammar and parsing notes
@@ -163,7 +165,7 @@ structured as a sequence of passes each in a separate module:
 | `Rex.Lex`     | Tokenizer — produces a stream of typed tokens     |
 | `Rex.Tree2`   | Structural grouping — produces a parse tree       |
 | `Rex.Rex`     | Classification — produces the Rex IR              |
-| `Rex.Print`   | Printer — renders Rex IR back to Rex notation     |
+| `Rex.PrintRex`| Printer — renders Rex IR back to Rex notation     |
 
 Build with `cabal build` and run as:
 
@@ -187,28 +189,22 @@ Somewhat stale relative to the Haskell codebase. Build with `make`:
 The **lexer and parser** are solid in both implementations. The Haskell
 pipeline in particular is clean and well-structured.
 
-The **pretty-printer** is the main unsolved problem and the primary remaining
-task for this project. Pretty-printing Rex is harder than pretty-printing most
-languages because the printer must invert the parsing rules: every rendering
-decision (tight infix vs. spaced infix vs. layout vs. block) must produce
-output that parses back to the same tree. Getting this right while also
-producing aesthetically good output — respecting line width, choosing natural
-forms, handling heirs correctly — is the core research question this project
-exists to answer.
+The **pretty-printer** is now functional. `Rex.PrintRex` uses a custom PDoc
+system that handles width-aware layout decisions. The printer produces
+reasonable output for real code, correctly handling:
 
-The Haskell implementation does not yet have a real pretty-printer. `Rex.Print`
-is a simple structural printer that produces valid Rex but makes no aesthetic
-decisions. `Lib.hs` contains the most serious attempt at a real layout engine,
-using `ansi-wl-pprint` (a Wadler-Lindig implementation) with logic for grouping
-children into word-wrapped and boxed flows, but it is disconnected from the
-main pipeline. The C printer in `rex.c` has a partial attempt — annotating
-nodes with a `wide` size and choosing between wide and tall rendering — but
-heir handling, tight infix unwrapping, and juxtaposition wrapping rules are all
-incomplete or buggy.
+- Flat vs. vertical layout choices based on page width
+- Heir structures (vertically-aligned sibling poems)
+- Multi-line strings (PAGE, SLUG, TRAD)
+- Tight infix, prefix runes, and juxtaposition
+- Block mode with trailing runes
+
+Some edge cases remain (see `todo/` for known issues), but the printer is
+usable for round-tripping real Rex code.
 
 ## Next Steps
 
-1. Solve the pretty-printer and integrate it into the Haskell pipeline.
+1. Harden the pretty-printer for remaining edge cases.
 2. Port the complete implementation to Reaver Scheme.
 3. Use the Reaver Scheme implementation as the foundation for a new
    implementation of the Sire language in Rex, fully bootstrapped from
