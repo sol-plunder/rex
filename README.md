@@ -109,7 +109,7 @@ Curly braces for records, tight infix for field access, quips for bare values:
    (# (+ 1 (/ (- x y) y))))))
 ```
 
-The same expression in ergonomic Rex:
+The same expression in ergonomic Rex using rune poems.
 
 ```rex
 := x/y
