@@ -1,12 +1,3 @@
-This is a research implementation of the new Rex parsing system.  The main
-remaining task is to figure out how to build a good pretty printer for
-this, which is somewhat complicated by the nicer features of Rex.
-
-Once this is stabilized, it should be implemented in Reaver Scheme, and
-used as the foundation for a new implementation of the Sire language in
-Reaver (which will then be fully bootstrapped from Plan Assembly,
-instead of implemented in Haskell or loaded from a binary file).
-
 # Rex
 
 Rex (Runic Expressions) is a universal tree notation — a structural normalizer
