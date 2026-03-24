@@ -1,0 +1,7 @@
+-- LEAVES: basic leaf nodes (words, strings)
+
+=== single word | 80
+hello
+
+=== trad string | 80
+"hello"

@@ -1,0 +1,19 @@
+-- EXPRS: application forms
+
+=== simple application | 80
+(f x)
+
+=== multiple args | 80
+(f x y z)
+
+=== empty parens | 80
+()
+
+=== bracket application | 80
+[a b c]
+
+=== curly application | 80
+{f x}
+
+=== nested application | 80
+(f (g x) y)

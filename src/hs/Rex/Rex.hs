@@ -9,11 +9,9 @@ module Rex.Rex
 where
 
 import qualified Rex.Tree2 as Tr
-import qualified Rex.Lex  as Lx
 
 import Rex.Tree2  (Bracket (..), Leaf (..), Node (..), Shape (..), Tree (..))
 import Data.List  (nubBy, sortBy)
-import Data.Maybe (catMaybes)
 
 
 -- Rex Data Model --------------------------------------------------------------
@@ -59,13 +57,93 @@ runeCmp a b = compare (packRune a) (packRune b)
 
 -- Leaf Conversion -------------------------------------------------------------
 
-leafToRex :: Leaf -> Rex
-leafToRex = \case
+leafToRex :: Int -> Leaf -> Rex
+leafToRex col = \case
     L_WORD s -> LEAF WORD s
-    L_TRAD s -> LEAF TRAD s
-    L_UGLY s -> LEAF UGLY s
-    L_SLUG s -> LEAF SLUG s
-    L_BAD  s -> LEAF WORD s
+    L_TRAD s -> LEAF TRAD (stripTrad col s)
+    L_UGLY s -> LEAF UGLY (stripUgly col s)
+    L_SLUG s -> LEAF SLUG (stripSlug s)
+    L_BAD  s -> LEAF WORD s  -- BAD tokens are errors, don't process
+
+-- | Strip a TRAD string: remove quotes, strip leading whitespace from
+-- continuation lines based on opening quote column.
+stripTrad :: Int -> String -> String
+stripTrad col s =
+    case s of
+        '"':rest -> case reverse rest of
+            '"':inner -> stripContinuations col (reverse inner)
+            _         -> stripContinuations col rest  -- unclosed, just strip open quote
+        _ -> s  -- no quotes, leave as is
+
+-- | Strip an UGLY string: remove ''' delimiters, strip leading whitespace
+-- from all lines based on opening quote column.
+stripUgly :: Int -> String -> String
+stripUgly col s =
+    let (ticks, afterOpen) = span (== '\'') s
+        n = length ticks
+    in if n >= 3
+       then let closeTicks = replicate n '\''
+                -- Find and remove closing ticks
+                content = removeClosing closeTicks afterOpen
+                -- Strip the leading newline if present, then strip each line
+            in case content of
+                '\n':rest -> stripAllLines col rest
+                _         -> stripAllLines col content
+       else s  -- not a valid ugly string, leave as is
+  where
+    removeClosing ticks str =
+        let revTicks = reverse ticks
+            revStr = reverse str
+        in if take (length ticks) revStr == revTicks
+           then reverse (drop (length ticks) revStr)
+           else str  -- no closing ticks found
+
+-- | Strip a SLUG string: remove "' " prefix from each line.
+stripSlug :: String -> String
+stripSlug = unlines' . map stripSlugLine . lines
+  where
+    stripSlugLine s = case s of
+        '\'':' ':rest -> rest
+        '\'':"" -> ""  -- empty slug line
+        '\'':rest -> rest  -- slug line with no space after '
+        _ -> s  -- shouldn't happen, but leave as is
+
+    unlines' [] = ""
+    unlines' xs = init (unlines xs)
+
+-- | Strip leading whitespace from continuation lines.
+-- The first line is left as-is, subsequent lines have `col` spaces stripped.
+stripContinuations :: Int -> String -> String
+stripContinuations col s =
+    case lines s of
+        [] -> ""
+        [single] -> unescapeQuotes single
+        (first:rest) -> unlines' (unescapeQuotes first : map (unescapeQuotes . stripN col) rest)
+  where
+    unlines' [] = ""
+    unlines' xs = init (unlines xs)
+
+-- | Unescape doubled quotes ("") to single quotes (")
+unescapeQuotes :: String -> String
+unescapeQuotes [] = []
+unescapeQuotes ('"':'"':rest) = '"' : unescapeQuotes rest
+unescapeQuotes (c:rest) = c : unescapeQuotes rest
+
+-- | Strip leading whitespace from all lines based on column.
+stripAllLines :: Int -> String -> String
+stripAllLines col s =
+    case lines s of
+        [] -> ""
+        ls -> unlines' (map (stripN col) ls)
+  where
+    unlines' [] = ""
+    unlines' xs = init (unlines xs)
+
+-- | Strip up to n leading spaces from a string.
+stripN :: Int -> String -> String
+stripN 0 s = s
+stripN n (' ':rest) = stripN (n-1) rest
+stripN _ s = s  -- non-space or end of string
 
 
 -- Quip Conversion -------------------------------------------------------------
@@ -115,7 +193,7 @@ spacedHead src blockOff ns  = spacedGroup src blockOff CLEAR ns
 
 spacedGroup :: String -> Int -> Color -> [Node] -> Rex
 spacedGroup src blockOff color nodes =
-    let elems = map (nodeToElem src blockOff) nodes
+    let elems = mergeBlocks src blockOff (map (nodeToElem src blockOff) nodes)
         runes = nubBy (==) $ sortBy runeCmp [r | E_RUNE r <- elems]
     in case runes of
          [] -> case [r | E_REX r <- elems] of
@@ -124,6 +202,21 @@ spacedGroup src blockOff color nodes =
                  rs  -> EXPR color rs
          _  -> let rex = infixRecur runes elems
                in applyColor color rex
+
+-- | Merge E_BLOCK elements with their preceding rune and head.
+-- Pattern: [E_REX head, E_RUNE rune, E_BLOCK items] -> [E_REX (BLOC CLEAR rune head items)]
+mergeBlocks :: String -> Int -> [Elem] -> [Elem]
+mergeBlocks src blockOff = go []
+  where
+    go acc [] = reverse acc
+    go acc (E_REX hd : E_RUNE r : E_BLOCK _ items : rest) =
+        let bloc = BLOC CLEAR r hd (map (convertWith src blockOff) items)
+        in go (E_REX bloc : acc) rest
+    go acc (E_RUNE r : E_BLOCK _ items : rest) =
+        -- Block with no head - just use empty EXPR as head
+        let bloc = BLOC CLEAR r (EXPR CLEAR []) (map (convertWith src blockOff) items)
+        in go (E_REX bloc : acc) rest
+    go acc (e : rest) = go (e : acc) rest
 
 applyColor :: Color -> Rex -> Rex
 applyColor CLEAR rex = rex
@@ -195,6 +288,7 @@ convertClump src blockOff nodes = top (nodeToElem src blockOff <$> nodes)
     juxt acc []                    = flush acc []
     juxt acc (e@(E_RUNE _) : rest) = flush acc (e : juxt [] rest)
     juxt acc (E_REX r : rest)      = juxt (acc ++ [r]) rest
+    juxt acc (E_BLOCK _ _ : rest)  = juxt acc rest  -- shouldn't happen; mergeBlocks handles these
 
     flush :: [Rex] -> [Elem] -> [Elem]
     flush []  rest = rest
@@ -234,19 +328,24 @@ flattenHeir r         = [r]
 -- Node Conversion -------------------------------------------------------------
 
 convertNode :: String -> Int -> Node -> Rex
-convertNode _   _        (N_LEAF _ lf)  = leafToRex lf
+convertNode _   _        (N_LEAF c lf)  = leafToRex c lf
 convertNode src blockOff (N_CHILD tree) = convertWith src blockOff tree
 convertNode _   _        (N_RUNE _ r)   = error $ "convertNode: bare rune: " ++ r
 
 
 -- Intermediate Elements -------------------------------------------------------
 
-data Elem = E_RUNE String | E_REX Rex
+data Elem = E_RUNE String | E_REX Rex | E_BLOCK String [Tree]
 
 nodeToElem :: String -> Int -> Node -> Elem
 nodeToElem _   _        (N_RUNE _ r)   = E_RUNE r
-nodeToElem _   _        (N_LEAF _ lf)  = E_REX (leafToRex lf)
-nodeToElem src blockOff (N_CHILD tree) = E_REX (convertWith src blockOff tree)
+nodeToElem _   _        (N_LEAF c lf)  = E_REX (leafToRex c lf)
+nodeToElem src blockOff (N_CHILD tree) = case tree of
+    Tree S_BLOCK _ _ _ blockNodes ->
+        -- Extract the rune that precedes this block by looking at context
+        -- For now, we'll handle this in the grouping phase
+        E_BLOCK "" [t | N_CHILD t <- blockNodes]
+    _ -> E_REX (convertWith src blockOff tree)
 
 
 -- Infix Precedence Grouping ---------------------------------------------------

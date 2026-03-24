@@ -4,16 +4,17 @@
 -- SPDX-License-Identifier: MIT
 -- See LICENSE for full terms.
 --
--- Round-trip test cases for Rex.PrintTree.
+-- Round-trip test cases for Rex.PrintRex.
 --
--- Tests are loaded from src/hs/ex/print-tree/*.tests in the format:
+-- Tests are loaded from src/hs/ex/print-rex/*.tests in the format:
 --   === test name | width
 --   code that should round-trip exactly...
 
-module Rex.PrintTreeTest (printTreeTestMain, printTreeTestMainIO) where
+module Rex.PrintRexTest (printRexTestMain, printRexTestMainIO) where
 
 import Rex.Tree2
-import Rex.PrintTree
+import Rex.Rex
+import Rex.PrintRex
 import Data.List (isPrefixOf, stripPrefix, dropWhileEnd, sort)
 import Data.Char (isSpace)
 import System.IO (hPutStrLn, stderr)
@@ -94,17 +95,23 @@ run (Test name width code) =
             [ "  FAIL " ++ name
             , "    parse returned no trees for: " ++ show code
             ])
-        [(_, tree)] ->
-            let actual = printTree width tree
-                ok     = actual == code
-            in if ok
-               then (True, "  OK   " ++ name)
-               else (False, unlines
-                       [ "  FAIL " ++ name
-                       , "    width:    " ++ show width
-                       , "    code:     " ++ show code
-                       , "    printed:  " ++ show actual
-                       ])
+        [(slice, tree)] ->
+            case rexFromBlockTree slice tree of
+                Nothing -> (False, unlines
+                    [ "  FAIL " ++ name
+                    , "    rexFromBlockTree returned Nothing for: " ++ show code
+                    ])
+                Just rex ->
+                    let actual = printRex width rex
+                        ok     = actual == code
+                    in if ok
+                       then (True, "  OK   " ++ name)
+                       else (False, unlines
+                               [ "  FAIL " ++ name
+                               , "    width:    " ++ show width
+                               , "    code:     " ++ show code
+                               , "    printed:  " ++ show actual
+                               ])
         results -> (False, unlines
             [ "  FAIL " ++ name
             , "    parse returned multiple trees (" ++ show (length results)
@@ -113,13 +120,13 @@ run (Test name width code) =
 
 
 -- | Run tests and print results (for use in rex executable)
-printTreeTestMain :: IO ()
-printTreeTestMain = printTreeTestMainIO >>= \_ -> pure ()
+printRexTestMain :: IO ()
+printRexTestMain = printRexTestMainIO >>= \_ -> pure ()
 
 -- | Run tests, print results, and return success status
-printTreeTestMainIO :: IO Bool
-printTreeTestMainIO = do
-    let testDir = "src/hs/ex/print-tree"
+printRexTestMainIO :: IO Bool
+printRexTestMainIO = do
+    let testDir = "src/hs/ex/print-rex"
     files <- listDirectory testDir
     let testFiles = sort [f | f <- files, takeExtension f == ".tests"]
     results <- mapM (runTestFile testDir) testFiles

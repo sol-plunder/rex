@@ -27,6 +27,8 @@ library
       Rex.Tree2
       Rex.Rex
       Rex.Print
+      Rex.PrintRex
+      Rex.PrintRexTest
       Rex.Test
       Rex.PDoc
       Rex.PrintTree
@@ -39,7 +41,9 @@ library
   build-depends:
       base             >= 4.7 && < 5
     , ansi-wl-pprint
+    , directory
     , extra
+    , filepath
     , optics
     , pretty-show
   default-language: Haskell2010
@@ -53,6 +57,8 @@ executable rex
       Rex.Tree2
       Rex.Rex
       Rex.Print
+      Rex.PrintRex
+      Rex.PrintRexTest
       Rex.Test
       Lib
       LowLib
@@ -63,7 +69,9 @@ executable rex
   build-depends:
       base             >= 4.7 && < 5
     , ansi-wl-pprint
+    , directory
     , extra
+    , filepath
     , optics
     , pretty-show
   default-language: Haskell2010
@@ -71,13 +79,63 @@ executable rex
 
 test-suite rex-test
   type:           exitcode-stdio-1.0
-  main-is:        Test.hs
+  main-is:        RexTestMain.hs
   hs-source-dirs: src/hs
   other-modules:
       Rex.Lex
       Rex.Tree2
       Rex.Rex
+      Rex.Test
   ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base  >= 4.7 && < 5
+  default-language: Haskell2010
+
+
+test-suite print-tree-test
+  type:           exitcode-stdio-1.0
+  main-is:        PrintTreeTestMain.hs
+  hs-source-dirs: src/hs
+  other-modules:
+      Rex.Lex
+      Rex.Tree2
+      Rex.PDoc
+      Rex.PrintTree
+      Rex.PrintTreeTest
+      Lib
+      LowLib
+  ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base             >= 4.7 && < 5
+    , ansi-wl-pprint
+    , directory
+    , extra
+    , filepath
+    , optics
+    , pretty-show
+  default-language: Haskell2010
+
+
+test-suite print-rex-test
+  type:           exitcode-stdio-1.0
+  main-is:        PrintRexTestMain.hs
+  hs-source-dirs: src/hs
+  other-modules:
+      Rex.Lex
+      Rex.Tree2
+      Rex.Rex
+      Rex.PDoc
+      Rex.PrintRex
+      Rex.PrintRexTest
+      Lib
+      LowLib
+  ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base             >= 4.7 && < 5
+    , ansi-wl-pprint
+    , directory
+    , extra
+    , filepath
+    , optics
+    , pretty-show
   default-language: Haskell2010

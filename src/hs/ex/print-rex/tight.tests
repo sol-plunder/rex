@@ -1,0 +1,34 @@
+-- TIGHT FORMS: prefix, tight infix, juxtaposition
+
+-- Prefix forms
+=== prefix negative | 80
+-x
+
+=== prefix colon | 80
+:foo
+
+=== prefix tilde | 80
+~[1 2 3]
+
+-- Tight infix forms
+=== dot notation | 80
+x.y
+
+=== dot chain | 80
+a.b.c.d
+
+=== tight colon | 80
+foo:bar
+
+-- Juxtaposition
+=== function call | 80
+f(x)
+
+=== chained calls | 80
+f(x)(y)
+
+=== indexing | 80
+f(x)[i]
+
+=== complex juxt | 80
+foo(bar)[baz](qux)

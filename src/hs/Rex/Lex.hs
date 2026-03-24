@@ -126,17 +126,23 @@ lexUgly tcol tokOff n col0 off0 xs =
     ch:cs ->
       let col'' = if ch=='\n' then 0 else col'+1
           off'' = off' + 1
-          poison'' = poison' || (col' < ud' && ch/=' ' && ch/='\n')
+          -- col' is 0-indexed, ud' is 1-indexed, so compare col'+1 < ud'
+          poison'' = poison' || (col'+1 < ud' && ch/=' ' && ch/='\n')
       in if ch=='\''
            then let run' = run+1
                 in if run' == n
-                     then let startCol  = col' - n + 1
+                     then let startCol  = col' - n + 2  -- +2 to convert from 0-indexed scan to 1-indexed tcol
                               poisonEnd = poison'' || (ud'==tcol && startCol /= tcol)
+                          -- Return the closing quotes; don't prepend ch since we handle the full run here
                           in (replicate n '\'', cs, poisonEnd, col'', off'')
-                     else let (a,b,p,k,o) = scan poison'' ud' run' col'' off'' cs
-                          in (ch:a, b, p, k, o)
-           else let (a,b,p,k,o) = scan poison'' ud' 0 col'' off'' cs
-                in (ch:a, b, p, k, o)
+                     else -- Don't prepend ch yet; if this run ends up being the closer, we handle it above
+                          -- If not, the quotes get flushed when we hit a non-quote
+                          let (a,b,p,k,o) = scan poison'' ud' run' col'' off'' cs
+                          in (a, b, p, k, o)  -- no ch: prefix here
+           else -- Non-quote: flush any pending quotes from the run, then this char
+                let pending = replicate run '\''
+                    (a,b,p,k,o) = scan poison'' ud' 0 col'' off'' cs
+                in (pending ++ ch:a, b, p, k, o)
 
 -- SLUG strings
 lexSlug :: Int -> Int -> String -> (Tok, String)

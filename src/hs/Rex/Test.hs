@@ -145,7 +145,11 @@ tests =
 
   , Test "string literal" "\"hi\""
       [cle [cwt 1 "\"hi\""]]
-      (lfT "\"hi\"")
+      (lfT "hi")
+
+  , Test "escaped quotes in string" "\"He said \"\"Hello\"\"\""
+      [cle [cwt 1 "\"He said \"\"Hello\"\"\""]]
+      (lfT "He said \"Hello\"")
 
   ---- CLUMPS ------------------------------------------------------------------
 
@@ -185,7 +189,7 @@ tests =
 
   , Test "tight: x+\"text\"" "x+\"text\""
       [cle [ch $ clu 1 [lw 1 "x", ru 2 "+", lt 3 "\"text\""]]]
-      (TYTE "+" [lf "x", lfT "\"text\""])
+      (TYTE "+" [lf "x", lfT "text"])
 
   , Test "tight: word+x" "word+x"
       [cle [ch $ clu 1 [lw 1 "word", ru 5 "+", lw 6 "x"]]]
@@ -527,9 +531,9 @@ tests =
   , MultiRexTest "quip after many inputs with notes"
       "x.y ') a\n\nx\"y\".a\"b\" ') b\n\nfoo.x=bar.x ') c\n\n(a, b.c, 'd, \"e\") ') d"
       [ TYTE "." [lf "x", lf "y"]
-      , TYTE "." [JUXT [lf "x", lfT "\"y\""], JUXT [lf "a", lfT "\"b\""]]
+      , TYTE "." [JUXT [lf "x", lfT "y"], JUXT [lf "a", lfT "b"]]
       , TYTE "=" [TYTE "." [lf "foo", lf "x"], TYTE "." [lf "bar", lf "x"]]
-      , NEST PAREN "," [lf "a", TYTE "." [lf "b", lf "c"], lfQ "'d", lfT "\"e\""]
+      , NEST PAREN "," [lf "a", TYTE "." [lf "b", lf "c"], lfQ "'d", lfT "e"]
       ]
 
   ]

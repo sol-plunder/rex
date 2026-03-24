@@ -1,0 +1,49 @@
+-- LEAVES: atomic tokens
+
+=== word | 80
+foo
+
+=== number | 80
+123
+
+=== quip | 80
+'quoted
+
+=== trad string | 80
+"hello"
+
+=== multiline trad | 80
+"multiline
+ string"
+
+=== multiline slug | 80
+' line one
+' line two
+
+=== ugly string | 80
+'''hello'''
+
+=== multiline ugly | 80
+'''
+line one
+line two
+'''
+
+=== nested trad | 80
+| foo | bar - "line one
+               line two"
+
+=== nested slug | 80
+| foo | bar - ' line one
+              ' line two
+
+=== nested ugly | 80
+| foo | bar - '''
+              Ugly String
+              '''
+
+=== deeply nested multiline ugly | 80
+| a | b | c | d - '''
+                  line one
+                  line two
+                  '''

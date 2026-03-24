@@ -1,0 +1,48 @@
+-- BLOCKS: rune-terminated lines with indented items
+
+=== single item block | 80
+x :
+    a
+
+=== simple block | 80
+f =
+    a
+    b
+
+=== block with expressions | 80
+f =
+    a + b
+    c + d
+
+=== block with compound head | 80
+def foo(x) =
+    a
+    b
+
+=== block with three items | 80
+f =
+    a
+    b
+    c
+
+=== block inside parens | 80
+(f =
+     a
+     b)
+
+=== block inside brackets | 80
+[f =
+     a
+     b]
+
+=== nested block | 80
+f =
+    g :
+        x
+        y
+    b
+
+=== block with nest items | 80
+f =
+    g(a , b)
+    h(c)

@@ -1,0 +1,70 @@
+-- POEMS: rune-headed layout forms
+
+=== simple poem | 80
++ a b
+
+=== poem with three children | 80
++ a b c
+
+=== nested poem inline | 80
++ a * b c
+
+=== nested poem chain | 80
++ a * b | c d
+
+=== poem with closed then open | 80
+| f | g x
+
+=== poem with bracket child | 80
++ a (b c) d
+
+=== arithmetic style | 80
++ a * b c
+
+=== let binding style | 80
+@ x 3 | add x x
+
+=== conditional style | 80
+? cond | then | else
+
+=== staircase poems | 80
++ x
+- y
+* z
+
+=== nested heir poems | 80
+~ 1
+~ 2
+~ 3
+
+=== poem in record | 80
+{name : items , value : ~ 1
+                        ~ 2
+                        ~ 3}
+
+=== poem in tuple | 80
+(+ 3 4 , add 3 4 , ? x | add x x)
+
+=== deeply nested poems | 80
+@ x 3
+| @ y 4
+  | add x y
+
+=== readme runic style | 80
+= exampleList ~ ? (sillyFn x y)
+                | sz | weld [5 -4 3]
+                     | map add-x [1 #(x+4 * y)]
+              ~ + user : %sol
+                + repo : b"plunder"
+                + path : /home/sol/r/plunder
+
+=== readme prefix notation | 80
+(:= (/ x y) (| if (= y 0) (!! "Error: divide-by-zero")
+             (| if (< x y) 0
+              (# (+ 1 (/ (- x y) y))))))
+
+=== readme ergonomic rex | 80
+:= x/y
+ | if y=0 !!"divide-by-zero"
+ | if x<y 0
+ | #(1 + (x-y / y))

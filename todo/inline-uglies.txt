@@ -1,0 +1,173 @@
+Previously you could write this:
+
+    """This is an ugly string.  It can include "quotes" 'n stuff with no issue"""
+
+But now only this version is supported.
+
+    """
+    This is an ugly string.  It can include "quotes" 'n stuff with no issue
+    """
+
+I believe this change was made simply because it is a little bit of a
+hassle to implement, but it seems like a pretty big loss.  Reconsider,
+and either bring it back or document why it isn't a good idea.
+
+--------------------------------------------------------------------------------
+
+# Implementation Plan
+
+## Overview
+
+Inline uglies (`'''content'''`) and block uglies (`'''\n  content\n'''`) are
+semantically different string types that share a delimiter. They need separate
+handling throughout the pipeline.
+
+## Why a New Leaf Type?
+
+The lexer uses `poison` to enforce indentation rules for block form. Inline
+form needs different rules (like TRAD - continuation lines indented past
+opening column). The printer also needs to know which form to use without
+guessing. A new leaf type makes this explicit.
+
+## Proposed Leaf Types
+
+```haskell
+data LeafShape = WORD | QUIP | TRAD | UGLY | UGLI | SLUG
+--                                     ^      ^
+--                              block ugly   inline ugly
+```
+
+Alternative naming: `UGIB`/`UGIL` (ugly block/ugly line), but `UGLY`/`UGLI`
+is memorable.
+
+## Changes by File
+
+### 1. Rex/Lex.hs
+
+**Current flow:**
+- `tick` sees `'''`, calls `lexUgly`
+- `lexUgly` sets `ud` based on whether first char is newline
+- Same `scan` loop handles both, using `poison` for under-indent
+
+**New flow:**
+- `tick` sees `'''`, peeks at next char
+- If newline: call `lexUglyBlock` (current logic, returns `UGLY`)
+- Otherwise: call `lexUglyInline` (new, returns `UGLI`)
+
+**`lexUglyInline` rules (like TRAD):**
+- Scan until closing `'''`
+- If newline encountered, next line must be indented > opening column
+- If under-indented, mark as `BAD`
+- No special dedenting - content is literal (like TRAD)
+
+### 2. Rex/Tree2.hs
+
+**Add new Leaf variant:**
+```haskell
+data Leaf = L_WORD String | L_TRAD String | L_UGLY String | L_UGLI String | ...
+```
+
+**Update `isLeafTy`:**
+```haskell
+isLeafTy = \case WORD -> True; TRAD -> True; UGLY -> True; UGLI -> True; ...
+```
+
+**Update `mkLeaf`:**
+```haskell
+UGLI -> L_UGLI s
+```
+
+**Update `ppLeaf`:**
+```haskell
+L_UGLI{} -> "UGLI"
+```
+
+### 3. Rex/Rex.hs
+
+**Add to LeafShape:**
+```haskell
+data LeafShape = WORD | QUIP | TRAD | UGLY | UGLI | SLUG
+```
+
+**Update `leafFromTree`:**
+```haskell
+L_UGLI s -> LEAF UGLI (stripUgliInline col s)
+```
+
+**Add `stripUgliInline`:**
+```haskell
+-- | Strip inline ugly: remove ''' delimiters, strip TRAD-style continuation indent
+stripUgliInline :: Int -> String -> String
+stripUgliInline col s =
+    let (ticks, afterOpen) = span (== '\'') s
+        n = length ticks
+    in if n >= 3
+       then let closeTicks = replicate n '\''
+                content = removeClosing closeTicks afterOpen
+            in stripTradStyle col content  -- like TRAD, strip continuation indent
+       else s
+```
+
+(May be able to reuse `stripTrad` logic)
+
+### 4. Rex/PrintRex.hs
+
+**Update `formatLeafSingle`:**
+```haskell
+formatLeafSingle UGLI s = "'''" ++ s ++ "'''"
+```
+
+**Update `formatLeafMulti`:**
+```haskell
+formatLeafMulti UGLI s = formatUgliMulti (lines s)  -- TRAD-style with ''' delims
+```
+
+**Add `formatUgliMulti`:**
+```haskell
+-- | Format multi-line inline ugly: like TRAD but with ''' delimiters
+formatUgliMulti :: [String] -> PDoc
+formatUgliMulti [] = pdocText "''''''"
+formatUgliMulti (l:ls) =
+    PCat (pdocText "'''") (PDent (PCat (pdocText l) (PCat (tradRest ls) (pdocText "'''"))))
+  where
+    tradRest [] = PEmpty
+    tradRest (x:xs) = PCat PLine (PCat (pdocText x) (tradRest xs))
+```
+
+### 5. Rex/PrintTree.hs
+
+**Update leaf printing:**
+```haskell
+L_UGLI s -> pdocText s  -- or appropriate handling
+```
+
+### 6. Rex/Print.hs (if used)
+
+**Update `endCol` pattern match** to handle `UGLI`.
+
+## Testing
+
+Add test cases for:
+- Single-line inline ugly: `'''hello'''`
+- Inline ugly with quotes: `'''say "hello"'''`
+- Multi-line inline ugly (TRAD-style continuation):
+  ```
+  '''first line
+     second line'''
+  ```
+- Inline ugly in tight context: `x+'''y'''`
+- Ensure block ugly still works: `'''\n  content\n'''`
+- Round-trip: parse then print preserves form
+
+## Estimated Effort
+
+- Lex.hs: ~30 lines (new `lexUglyInline` function)
+- Tree2.hs: ~5 lines (new variant handling)
+- Rex.hs: ~15 lines (new leaf shape + stripping)
+- PrintRex.hs: ~15 lines (new formatting)
+- PrintTree.hs: ~2 lines
+- Print.hs: ~2 lines
+- Tests: ~20 lines
+
+Total: ~90 lines of code, touching 6 files. Medium complexity due to lexer
+changes requiring careful column tracking.

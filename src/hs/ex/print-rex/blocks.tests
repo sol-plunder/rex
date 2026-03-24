@@ -1,0 +1,47 @@
+-- BLOCKS: rune-terminated heads with indented items
+
+=== simple block | 80
+f =
+    a
+    b
+
+=== single item block | 80
+x :
+    y
+
+=== block with three items | 80
+f =
+    a
+    b
+    c
+
+=== block with compound head | 80
+(f x) =
+    body
+
+=== readme python-like | 80
+def foo(x , y) :
+    x += y
+    return x
+
+=== readme haskell type sig | 80
+map : (a -> b) -> [a] -> [b]
+
+=== readme haskell def 1 | 80
+map f [] = []
+
+=== readme haskell def 2 | 80
+map f (x:xs) = (f x : map f xs)
+
+=== readme quicksort | 80
+def quicksort xs :
+    match xs :
+        [] -> []
+        (h:ts) ->
+            less = filter <h ts
+            greater = filter >=h ts
+            quicksort less ++ [h] ++ quicksort greater
+
+=== record with block values | 80
+{k1 :
+    value1 , k2 : value2}

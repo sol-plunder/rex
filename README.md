@@ -124,7 +124,7 @@ The same expression in ergonomic Rex:
 
 ```rex
 := x/y
- | if y=0 !!{Error: divide-by-zero}
+ | if y=0 !!"divide-by-zero"
  | if x<y 0
  | #(1 + (x-y / y))
 ```

@@ -1,0 +1,13 @@
+-- CLUMPS: tight adjacency forms
+
+=== tight infix a.b | 80
+a.b
+
+=== tight prefix -x | 80
+-x
+
+=== tight prefix + tight infix: -x.y | 80
+-x.y
+
+=== juxtaposition f(x) | 80
+f(x)

@@ -4,3 +4,4 @@ o.rex
 .direnv
 *~dist-newstyle
 dist-newstyle/
+.claude

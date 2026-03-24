@@ -1,0 +1,31 @@
+-- NESTS: bracket forms with infix rune
+
+=== simple infix | 80
+(a + b)
+
+=== three operands | 80
+(a + b + c)
+
+=== curly with comma | 80
+{a , b , c}
+
+=== bracket with bar | 80
+[x | y | z]
+
+=== nested infix | 80
+(a + (b * c))
+
+=== clear infix | 80
+a + b
+
+=== trailing comma | 80
+(foo ,)
+
+=== trailing plus | 80
+(bar +)
+
+-- TODO: readme config example looks horrible, printer needs better record formatting
+=== readme config | 80
+{title : "TOML Example" , owner : {name : "Tom Preston-Werner" , dob
+                                                                 : '1979-05-27T07:32:00-08:00}
+ , database : {enabled : true , ports : [8000 , 8001 , 8002]}}

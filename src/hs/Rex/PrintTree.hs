@@ -78,21 +78,18 @@ nestContent []    = PEmpty
 nestContent nodes = PDent (nodeSep nodes)
 
 -- Separate nodes with space-or-newline, choosing the most compact layout.
--- Blocks and poems always start on their own line.
+-- Block children force a line break — the rune stays on the head's line,
+-- and block items start on the next line indented.
 nodeSep :: [Node] -> PDoc
 nodeSep []     = PEmpty
 nodeSep [n]    = printNode n
-nodeSep (n:ns) =
-    let rest = nodeSep ns
-    in case ns of
-         (b:_) | isBlock b -> PCat (printNode n) (PCat PLine rest)
-         _                 -> pdocSpaceOrLine (printNode n) rest
+nodeSep (n:ns)
+    | isBlockNode (head ns) = PCat (printNode n) (nodeSep ns)
+    | otherwise             = pdocSpaceOrLine (printNode n) (nodeSep ns)
 
-isBlock :: Node -> Bool
-isBlock (N_CHILD (Tree S_BLOCK _ _ _ _)) = True
-isBlock (N_CHILD (Tree S_POEM  _ _ _ ns)) =
-    not (poemInlineable (drop 1 ns))  -- drop the leading rune node
-isBlock _ = False
+isBlockNode :: Node -> Bool
+isBlockNode (N_CHILD (Tree S_BLOCK _ _ _ _)) = True
+isBlockNode _ = False
 
 bracketChars :: Bracket -> (Char, Char)
 bracketChars Paren = ('(', ')')
@@ -114,34 +111,43 @@ quipDoc (n:_) = PCat (PChar '\'') (printNode n)
 --
 -- A rune poem: a free rune followed by children gathered by indentation.
 --
--- A poem is inlineable if all children except possibly the last are closed,
--- and the last is either closed or itself inlineable. If inlineable, we
--- offer a PChoice between flat and vertical. If not, we render vertically
--- unconditionally — no PChoice is offered.
+-- Layout strategy:
+--   Flat:     RUNE child1 child2 child3
+--   Vertical: RUNE child1
+--                  child2
+--                  child3
+--
+-- The vertical form uses PDent after RUNE+space so that children on
+-- subsequent lines align to the column after the rune and its space.
+--
+-- A poem is inlineable if all children except possibly the last are closed
+-- (not poems/blocks), and the last is either closed or itself inlineable.
+-- If inlineable, we offer a PChoice between flat and vertical.
 
 poemDoc :: [Node] -> PDoc
 poemDoc [] = PEmpty
-poemDoc (N_RUNE _ rune : children) =
+poemDoc (N_RUNE runeCol rune : children) =
     let runeDoc  = pdocText rune
-        vertical = PDent (PCat runeDoc (PCat pdocSpace (poemChildrenVertical children)))
-    in if poemInlineable children
-       then PChoice
-                (PCat runeDoc (PCat pdocSpace (poemChildrenFlat children)))
-                vertical
+        flat     = PCat runeDoc (PCat pdocSpace (poemChildrenFlat children))
+        vertical = PCat runeDoc (PCat pdocSpace (PDent (poemChildrenVertical children)))
+    in if poemInlineable runeCol children
+       then PChoice flat vertical
        else vertical
-poemDoc nodes = nodeSep nodes  -- fallback: shouldn't happen in a well-formed tree
+poemDoc nodes = nodeSep nodes  -- fallback: shouldn't happen in well-formed tree
 
 -- A list of poem children is inlineable if all but the last are closed,
--- and the last is closed or inlineable.
-poemInlineable :: [Node] -> Bool
-poemInlineable []     = True
-poemInlineable [n]    = not (isOpen n) || poemNodeInlineable n
-poemInlineable (n:ns) = not (isOpen n) && poemInlineable ns
+-- and the last is closed or inlineable. Additionally, no child poem can be
+-- an heir (same column as the parent rune) — heirs must stay vertically aligned.
+poemInlineable :: Int -> [Node] -> Bool
+poemInlineable _       []     = True
+poemInlineable runeCol [n]    = not (isOpen n) || poemNodeInlineable runeCol n
+poemInlineable runeCol (n:ns) = not (isOpen n) && poemInlineable runeCol ns
 
-poemNodeInlineable :: Node -> Bool
-poemNodeInlineable (N_CHILD (Tree S_POEM _ _ _ (N_RUNE _ _ : children))) =
-    poemInlineable children
-poemNodeInlineable n = not (isOpen n)
+poemNodeInlineable :: Int -> Node -> Bool
+poemNodeInlineable runeCol (N_CHILD (Tree S_POEM pos _ _ (N_RUNE _ _ : children)))
+    | pos == runeCol = False  -- heir: same column as parent rune, cannot inline
+    | otherwise      = poemInlineable pos children  -- check with child's rune column
+poemNodeInlineable _ n = not (isOpen n)
 
 -- Flat rendering: all children space-separated on one line.
 poemChildrenFlat :: [Node] -> PDoc
@@ -149,17 +155,38 @@ poemChildrenFlat []     = PEmpty
 poemChildrenFlat [n]    = printNode n
 poemChildrenFlat (n:ns) = PCat (printNode n) (PCat pdocSpace (poemChildrenFlat ns))
 
--- Vertical rendering: open children use pdocBackstep, closed use space.
--- pdocBackstep already contains PLine internally — do not add extra PLines.
+-- Vertical rendering: first child on same line as rune, rest on new lines.
+-- PDent is set by the caller (poemDoc) so PLine aligns to rune+space column.
+--
+-- Open children (poems/blocks) use pdocBackstep so that earlier siblings
+-- are indented further right than later ones — the "staircase" pattern.
+-- This is required because a rune poem's parsing box captures everything
+-- indented more than its starting column. If two sibling poems were at
+-- the same column, the first would consume the second. Backstep renders
+-- later siblings first to determine their indent, then pushes earlier
+-- siblings further right.
+--
+-- Closed children (words, strings, brackets) have no vertical extent
+-- and cannot capture siblings, so they just use PLine at the same column.
 poemChildrenVertical :: [Node] -> PDoc
 poemChildrenVertical []     = PEmpty
 poemChildrenVertical [n]    = printNode n
 poemChildrenVertical (n:ns)
-    | isOpen n  = pdocBackstep (printNode n) (poemChildrenVertical ns)
-    | otherwise = PCat (printNode n) (PCat pdocSpace (poemChildrenVertical ns))
+    | isOpen n  = pdocBackstep (printNode n) (poemOpenRest ns)
+    | otherwise = PCat (printNode n) (PCat PLine (poemChildrenVertical ns))
 
--- An "open" node is one that may expand into a vertical poem structure,
--- requiring backstep alignment with its siblings.
+-- Continuation after an open sibling. Every child here needs PLine before
+-- it (to separate from the preceding open sibling's multi-line content).
+-- Open children still use backstep for the staircase; closed ones just
+-- get PLine.
+poemOpenRest :: [Node] -> PDoc
+poemOpenRest []     = PEmpty
+poemOpenRest [n]    = PCat PLine (printNode n)
+poemOpenRest (n:ns)
+    | isOpen n  = pdocBackstep (printNode n) (poemOpenRest ns)
+    | otherwise = PCat PLine (PCat (printNode n) (poemOpenRest ns))
+
+-- An "open" node is one that may expand vertically (poem or block).
 isOpen :: Node -> Bool
 isOpen (N_CHILD (Tree S_POEM  _ _ _ _)) = True
 isOpen (N_CHILD (Tree S_BLOCK _ _ _ _)) = True
@@ -168,11 +195,17 @@ isOpen _                                = False
 
 -- Block -----------------------------------------------------------------------
 --
--- A block contains items, each on its own line at a fixed 4-space indent.
+-- A block contains items. The block always starts on a new line, with
+-- items indented relative to the enclosing context. The rune that opens
+-- the block stays on the head's line; blockDoc handles only the items.
+--
+-- Layout: newline, 4-space indent, then items separated by newlines.
+-- PDent captures the column after the indent spaces, so subsequent
+-- PLines within items align correctly.
 
 blockDoc :: [Node] -> PDoc
-blockDoc []    = PEmpty
-blockDoc items = PCat (pdocText "    ") (PDent (blockItems items))
+blockDoc []     = PEmpty
+blockDoc nodes  = PCat PLine (PCat (pdocText "    ") (PDent (blockItems nodes)))
 
 blockItems :: [Node] -> PDoc
 blockItems []     = PEmpty

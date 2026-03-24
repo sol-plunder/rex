@@ -1,0 +1,23 @@
+-- HEIRS: vertically aligned siblings
+
+=== bare heir | 80
+| a
+| b
+
+=== simple heir | 80
++ a
++ b
+
+=== three heir siblings | 80
++ a
++ b
++ c
+
+=== heir in expression | 80
+(@ x
+ ^ y
+ | z)
+
+=== heir with nested poems | 80
++ x | a b
++ y | c d

@@ -1,0 +1,80 @@
+-- POEMS: rune-headed indentation blocks
+
+-- Basic poems
+=== simple poem | 80
++ a b
+
+=== poem with three children | 80
++ a b c
+
+=== poem with numbers | 80
++ 3 4 5
+
+-- Nested poems (inlineable when last child is open)
+=== nested poem inlines | 80
++ a * b c
+
+=== nested poem chain | 80
++ a * b | c d
+
+=== deeply nested poem | 80
++ a * b | c @ d e
+
+-- Sibling poems (staircase layout)
+=== sibling poems vertical | 80
++ 
+      * a b
+  * c d
+
+=== three sibling poems staircase | 80
++ 
+          | a b
+      | c d
+  | e f
+
+=== four sibling poems | 80
++ 
+              @ w x
+          | a b
+      | c d
+  | e f
+
+-- Width-dependent layout
+=== poem vertical on narrow width | 10
++ aaaa
+  bbbb
+  cccc
+
+=== poem fits on wide width | 80
++ aaaa bbbb cccc
+
+-- Poem with closed then open child (inlines)
+=== closed then open child | 80
+| f | g x
+
+=== multiple closed then open | 80
+| a b c | d e
+
+-- Heir poems (siblings at same column)
+=== heir poems inline | 80
+~ a b c + foo bar + zaz
+
+-- Complex real-world patterns from documentation
+=== arithmetic poem | 80
++ a * b c
+
+=== let binding style | 80
+@ x 3 | add x x
+
+=== conditional style | 80
+? cond | then-branch | else-branch
+
+-- Mixed content
+=== poem with bracket child | 80
++ a (b c) d
+
+=== poem with tight infix child | 80
++ a x.y.z b
+
+=== poem with quip child | 80
++ a 'quoted b
