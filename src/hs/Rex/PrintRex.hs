@@ -40,6 +40,26 @@ rexDoc = \case
     HEIR kids     -> heirDoc kids
     BLOC c r hd items -> blocDoc c r hd items
 
+-- | Render a Rex in a flat-only context. For NESTs and EXPRs, this renders
+-- only the flat form without offering a vertical alternative. This ensures
+-- that when we're inside a flat form, nested structures don't unexpectedly
+-- go vertical (which would cause the outer flat form to span multiple lines).
+--
+-- For inherently vertical constructs (OPEN, HEIR, BLOC), we wrap them in
+-- pdocNoFit which signals to PChoice that this branch doesn't fit.
+rexDocFlat :: Rex -> PDoc
+rexDocFlat = \case
+    LEAF sh s     -> leafDoc sh s
+    NEST c r kids -> nestDocFlat c r kids
+    EXPR c kids   -> exprDocFlat c kids
+    PREF r child  -> PCat (pdocText r) (rexDocFlat child)
+    TYTE r kids   -> pdocIntersperseFun (\x y -> PCat x (PCat (pdocText r) y)) (map rexDocFlat kids)
+    JUXT kids     -> foldr (PCat . rexDocFlat) PEmpty kids
+    -- These are inherently vertical; mark as "no fit" to force vertical layout
+    OPEN r kids   -> pdocNoFit (openDoc r kids)
+    HEIR kids     -> pdocNoFit (heirDoc kids)
+    BLOC c r hd items -> pdocNoFit (blocDoc c r hd items)
+
 
 -- LEAF: Atomic tokens -------------------------------------------------------------
 --
@@ -122,33 +142,67 @@ formatSpanMulti (l:ls) =
 -- NEST: Infix bracket forms like (a + b), {a | b} --------------------------------
 --
 -- Children are separated by " rune " and enclosed in brackets.
--- When children contain HEIR, force newline between them.
+--
+-- Layout options:
+--   Flat:     (a + b + c)
+--   Outlined: ( a
+--            , b
+--            , c
+--            )
+--
+-- The outlined form puts the closing bracket on its own line, aligned with
+-- the opening bracket. This is the preferred vertical layout for bracketed
+-- forms.
 
 nestDoc :: Color -> String -> [Rex] -> PDoc
 nestDoc c r kids =
     let (open, close) = bracketChars c
-        content = case kids of
-            [k] -> PCat (rexDoc k) (PCat pdocSpace (pdocText r))  -- trailing rune for single element
-            _   -> nestContent c r kids
     in case c of
-        CLEAR -> PDent content
-        _     -> PCat (PChar open) (PCat (PDent content) (PChar close))
+        CLEAR -> PDent (nestContentClear r kids)  -- CLEAR uses flat separators with normal rexDoc
+        _     -> case kids of
+            []  -> PCat (PChar open) (PChar close)
+            [k] -> -- Single element with trailing rune: (x +)
+                   let flat = PCat (PChar open) (PCat (rexDocFlat k) (PCat pdocSpace (PCat (pdocText r) (PChar close))))
+                       vert = PDent (PCat (PChar open) (PCat (PChar ' ') (PCat (rexDoc k) (PCat pdocSpace (PCat (pdocText r) (PCat PLine (PChar close)))))))
+                   in PChoice flat vert
+            _   -> -- Multiple elements
+                   let flat = PCat (PChar open) (PCat (nestContentFlat r kids) (PChar close))
+                       vert = PDent (PCat (PChar open) (PCat (PChar ' ') (PCat (nestContentOutlined r kids) (PCat PLine (PChar close)))))
+                   in PChoice flat vert
 
-nestContent :: Color -> String -> [Rex] -> PDoc
-nestContent _ _ []     = PEmpty
-nestContent _ _ [k]    = rexDoc k
-nestContent c r (k:ks)
-    -- If current child contains HEIR, force newline after it
-    | containsHeir k = PCat (rexDoc k) (PCat PLine (PCat (pdocText (r ++ " ")) (nestContent c r ks)))
-    | otherwise      = PCat (rexDoc k) (nestSep c r ks)
+-- | Flat-only version of nestDoc (no PChoice, just flat form)
+nestDocFlat :: Color -> String -> [Rex] -> PDoc
+nestDocFlat c r kids =
+    let (open, close) = bracketChars c
+    in case c of
+        CLEAR -> nestContentFlat r kids
+        _     -> case kids of
+            []  -> PCat (PChar open) (PChar close)
+            [k] -> PCat (PChar open) (PCat (rexDocFlat k) (PCat pdocSpace (PCat (pdocText r) (PChar close))))
+            _   -> PCat (PChar open) (PCat (nestContentFlat r kids) (PChar close))
 
--- Separator between non-heir child and rest
-nestSep :: Color -> String -> [Rex] -> PDoc
-nestSep _ _ []     = PEmpty
-nestSep c r (k:ks) =
-    let flatSep = pdocText (" " ++ r ++ " ")
-        vertSep = PCat PLine (pdocText (r ++ " "))
-    in PCat (PChoice flatSep vertSep) (nestContent c r (k:ks))
+-- | Content for CLEAR nests: separators but no brackets, uses rexDoc
+nestContentClear :: String -> [Rex] -> PDoc
+nestContentClear _ []     = PEmpty
+nestContentClear _ [k]    = rexDoc k
+nestContentClear r (k:ks) = PCat (rexDoc k) (PCat (pdocText (" " ++ r ++ " ")) (nestContentClear r ks))
+
+-- | Flat layout: children separated by " rune " (uses rexDocFlat for children)
+nestContentFlat :: String -> [Rex] -> PDoc
+nestContentFlat _ []     = PEmpty
+nestContentFlat _ [k]    = rexDocFlat k
+nestContentFlat r (k:ks) = PCat (rexDocFlat k) (PCat (pdocText (" " ++ r ++ " ")) (nestContentFlat r ks))
+
+-- | Outlined vertical layout: first child inline, rest on new lines with rune prefix
+nestContentOutlined :: String -> [Rex] -> PDoc
+nestContentOutlined _ []     = PEmpty
+nestContentOutlined _ [k]    = rexDoc k
+nestContentOutlined r (k:ks) = PCat (rexDoc k) (nestRestOutlined r ks)
+
+-- | Rest of outlined layout: each child on new line prefixed with rune
+nestRestOutlined :: String -> [Rex] -> PDoc
+nestRestOutlined _ []     = PEmpty
+nestRestOutlined r (k:ks) = PCat PLine (PCat (pdocText (r ++ " ")) (PCat (rexDoc k) (nestRestOutlined r ks)))
 
 
 -- EXPR: Application forms like (f x), [a, b], {} --------------------------------
@@ -162,6 +216,15 @@ exprDoc c kids =
         content = case kids of
             [] -> PEmpty
             _  -> PDent (pdocIntersperseFun pdocSpaceOrLine (map rexDoc kids))
+    in case c of
+        CLEAR -> content
+        _     -> PCat (PChar open) (PCat content (PChar close))
+
+-- | Flat-only version of exprDoc (uses rexDocFlat for children)
+exprDocFlat :: Color -> [Rex] -> PDoc
+exprDocFlat c kids =
+    let (open, close) = bracketChars c
+        content = pdocIntersperse pdocSpace (map rexDocFlat kids)
     in case c of
         CLEAR -> content
         _     -> PCat (PChar open) (PCat content (PChar close))
@@ -309,19 +372,6 @@ isOpenRex (OPEN _ _)     = True
 isOpenRex (BLOC _ _ _ _) = True
 isOpenRex (HEIR _)       = True
 isOpenRex _              = False
-
--- | Check if a Rex contains HEIR (directly or nested).
--- Used to force vertical layout when children have heirs.
-containsHeir :: Rex -> Bool
-containsHeir (HEIR _)          = True
-containsHeir (LEAF _ _)        = False
-containsHeir (NEST _ _ kids)   = any containsHeir kids
-containsHeir (EXPR _ kids)     = any containsHeir kids
-containsHeir (PREF _ child)    = containsHeir child
-containsHeir (TYTE _ kids)     = any containsHeir kids
-containsHeir (JUXT kids)       = any containsHeir kids
-containsHeir (OPEN _ kids)     = any containsHeir kids
-containsHeir (BLOC _ _ hd its) = containsHeir hd || any containsHeir its
 
 bracketChars :: Color -> (Char, Char)
 bracketChars PAREN = ('(', ')')

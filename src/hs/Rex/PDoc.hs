@@ -34,6 +34,7 @@ module Rex.PDoc
     , pdocSpace
     , pdocSpaceOrLine
     , pdocBackstep
+    , pdocNoFit
     , pdocIntersperse
     , pdocIntersperseFun
     , pdocIntersperseFunList
@@ -53,6 +54,7 @@ data PDoc
     | PCat   PDoc PDoc          -- ^ concatenation
     | PDent  PDoc               -- ^ set indent level to current column
     | PChoice PDoc PDoc         -- ^ try left; fall back to right if it doesn't fit
+    | PNoFit PDoc               -- ^ never fits in PChoice; forces fallback to right
     | PBackstep !Int PDoc PDoc  -- ^ use right's indent to inform left's indent
     deriving (Show)
 
@@ -65,6 +67,7 @@ data SDoc
     | SChar  !Char SDoc
     | SText  !Int String SDoc   -- ^ length, text, rest
     | SLine  !Int SDoc          -- ^ indentation level, rest
+    | SNoFit SDoc               -- ^ marker that this doesn't fit (for PChoice)
     deriving (Show)
 
 
@@ -118,6 +121,10 @@ pdocRenderSDoc w =
                 (best n k (DLCons i x ds))
                 (best n k (DLCons i y ds))
 
+        PNoFit x ->
+            let (bs, rest) = best n k (DLCons i x ds)
+            in (bs, SNoFit rest)
+
         PBackstep b x y ->
             let (backstep, ylist) = best n k (DLCons i y ds)
                 ip                = i + backstep + b
@@ -148,6 +155,10 @@ pdocRenderSDoc w =
                 (best n k (DLSCons i x bs ss))
                 (best n k (DLSCons i y bs ss))
 
+        PNoFit x ->
+            let (_, rest) = best n k (DLSCons i x bs ss)
+            in (bs, SNoFit rest)
+
         PBackstep b x y ->
             let (backstep, ylist) = best n k (DLSCons i y bs ss)
                 ip                = i + backstep + b
@@ -162,12 +173,14 @@ pdocRenderNicest w _n k xr yr =
 
 -- | Check whether an SDoc fits within the given number of remaining columns.
 -- Returns True on newlines (the new line starts fresh).
+-- Returns False on SNoFit (explicitly marked as not fitting).
 sdocFits :: Int -> SDoc -> Bool
 sdocFits w _            | w < 0     = False
 sdocFits _ SEmpty                   = True
 sdocFits w (SChar _ x)              = sdocFits (w - 1) x
 sdocFits w (SText l _ x)            = sdocFits (w - l) x
 sdocFits _ (SLine _ _)              = True
+sdocFits _ (SNoFit _)               = False
 
 -- | Convert a rendered 'SDoc' to a 'String'.
 sdocToString :: SDoc -> String
@@ -175,6 +188,7 @@ sdocToString SEmpty        = ""
 sdocToString (SChar c x)   = c : sdocToString x
 sdocToString (SText _ s x) = s ++ sdocToString x
 sdocToString (SLine i x)   = '\n' : replicate i ' ' ++ sdocToString x
+sdocToString (SNoFit x)    = sdocToString x  -- SNoFit is just a marker, render content
 
 
 -- Primitive Constructors ------------------------------------------------------
@@ -236,6 +250,13 @@ pdocSpaceOrLine x y = PCat x (PChoice (PCat pdocSpace y) (PCat PLine y))
 -- poems correctly.
 pdocBackstep :: PDoc -> PDoc -> PDoc
 pdocBackstep x y = PBackstep 4 (PCat PLine x) y
+
+-- | Mark a document as "never fits" for PChoice. When this appears in the
+-- left branch of a PChoice, it forces the choice to use the right branch.
+-- The document is still rendered normally if the PChoice selects this branch
+-- (e.g., if there's no alternative).
+pdocNoFit :: PDoc -> PDoc
+pdocNoFit = PNoFit
 
 -- | Intersperse a separator between documents in a list, using a
 -- combining function.

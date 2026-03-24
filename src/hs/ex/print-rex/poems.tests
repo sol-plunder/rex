@@ -38,9 +38,11 @@
 ~ 3
 
 === poem in record | 80
-{name : items , value : ~ 1
-                        ~ 2
-                        ~ 3}
+{ name : items
+, value : ~ 1
+          ~ 2
+          ~ 3
+}
 
 === poem in tuple | 80
 (+ 3 4 , add 3 4 , ? x | add x x)

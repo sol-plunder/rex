@@ -4,17 +4,6 @@
 
 This is the Rex project - a universal tree notation parser and pretty printer.
 
-## Container Environment
-
-Whenever you make a change to the filesystem, use chown to give access
-back to me (uid 1000).  You are working in a NixOS container, and I
-am not.  I'll fix this properly later, but this is my first time using
-claude code.
-
-Also!  Note that whenever you do something with cabal, including just
-running or building things, it will create new build artifacts which
-are owned by root, so please chown after that too.
-
 ## Important Notes
 
 Before working on this codebase, review the notes in the `note/` directory:
