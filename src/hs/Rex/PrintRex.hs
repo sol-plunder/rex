@@ -284,7 +284,16 @@ openDoc r kids =
     let runeD = pdocText r
         flat = PCat runeD (PCat pdocSpace (openChildrenFlat kids))
         vertical = PCat runeD (PCat pdocSpace (PDent (openChildrenVertical kids)))
-    in PChoice flat vertical
+        -- If last child is inherently vertical (HEIR or BLOC), force vertical layout
+        hasInherentlyVerticalLast = case kids of
+            [] -> False
+            _  -> case last kids of
+                      HEIR _       -> True
+                      BLOC _ _ _ _ -> True
+                      _            -> False
+    in if hasInherentlyVerticalLast
+       then vertical
+       else PChoice flat vertical
 
 openChildrenFlat :: [Rex] -> PDoc
 openChildrenFlat = pdocIntersperse pdocSpace . map rexDoc

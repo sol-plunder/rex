@@ -59,6 +59,15 @@
               ~ + user : %sol
                 + repo : b"plunder"
                 + path : /home/sol/r/plunder
+---
+= exampleList
+  ~ ? (sillyFn x y)
+    | sz
+      | weld [5 -4 3]
+      | map add-x [1 #(x+4 * y)]
+  ~ + user : %sol
+    + repo : b"plunder"
+    + path : /home/sol/r/plunder
 
 === readme prefix notation | 80
 (:= (/ x y) (| if (= y 0) (!! "Error: divide-by-zero")
