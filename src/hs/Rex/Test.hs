@@ -2,7 +2,7 @@
 
 module Rex.Test (testMain) where
 
-import Rex.Lex (lexRex, bsplit)
+import Rex.Lex (lexRex, bsplit, Span(..))
 import Rex.Tree2 hiding (treeMain)
 import Rex.Rex hiding (rexMain)
 
@@ -16,12 +16,18 @@ data Test
 parse :: String -> [Tree]
 parse = parseTree . bsplit . lexRex
 
+-- | Strip span details to compare just structure + column
+--   Zeroes: line, offset, length. Preserves: column.
+stripSpan :: Span -> Span
+stripSpan s = s { spanLin = 0, spanOff = 0, spanLen = 0 }
+
 stripTree :: Tree -> Tree
-stripTree (Tree sh pos _ _ ns) = Tree sh pos 0 0 (map stripNode ns)
+stripTree (Tree sh s ns) = Tree sh (stripSpan s) (map stripNode ns)
 
 stripNode :: Node -> Node
-stripNode (N_CHILD t) = N_CHILD (stripTree t)
-stripNode n           = n
+stripNode (N_CHILD t)  = N_CHILD (stripTree t)
+stripNode (N_LEAF s l) = N_LEAF (stripSpan s) l
+stripNode (N_RUNE s r) = N_RUNE (stripSpan s) r
 
 toRex :: String -> Rex
 toRex src = case parseRex src of
@@ -102,20 +108,24 @@ testMain = do
 
 -- Shorthand Constructors ------------------------------------------------------
 
-cle :: [Node] -> Tree;  cle = Tree (S_NEST Clear) 0 0 0
-par :: Int -> [Node] -> Tree;  par p = Tree (S_NEST Paren) p 0 0
-bra :: Int -> [Node] -> Tree;  bra p = Tree (S_NEST Brack) p 0 0
-cur :: Int -> [Node] -> Tree;  cur p = Tree (S_NEST Curly) p 0 0
-clu :: Int -> [Node] -> Tree;  clu p = Tree S_CLUMP p 0 0
-pom :: Int -> [Node] -> Tree;  pom p = Tree S_POEM p 0 0
-blk :: Int -> [Node] -> Tree;  blk p = Tree S_BLOCK p 0 0
-itm :: Int -> [Node] -> Tree;  itm p = Tree S_ITEM p 0 0
-qup :: Int -> [Node] -> Tree;  qup p = Tree S_QUIP p 0 0
+-- Helper to create a span from just a column (line=0, off=0, len=0)
+sp :: Int -> Span
+sp c = Span 0 c 0 0
 
-lw :: Int -> String -> Node;   lw c s = N_LEAF c (L_WORD s)
-lt :: Int -> String -> Node;   lt c s = N_LEAF c (L_TRAD s)
-lu :: Int -> String -> Node;   lu c s = N_LEAF c (L_UGLY s)
-ru :: Int -> String -> Node;   ru = N_RUNE
+cle :: [Node] -> Tree;  cle = Tree (S_NEST Clear) (sp 0)
+par :: Int -> [Node] -> Tree;  par p = Tree (S_NEST Paren) (sp p)
+bra :: Int -> [Node] -> Tree;  bra p = Tree (S_NEST Brack) (sp p)
+cur :: Int -> [Node] -> Tree;  cur p = Tree (S_NEST Curly) (sp p)
+clu :: Int -> [Node] -> Tree;  clu p = Tree S_CLUMP (sp p)
+pom :: Int -> [Node] -> Tree;  pom p = Tree S_POEM (sp p)
+blk :: Int -> [Node] -> Tree;  blk p = Tree S_BLOCK (sp p)
+itm :: Int -> [Node] -> Tree;  itm p = Tree S_ITEM (sp p)
+qup :: Int -> [Node] -> Tree;  qup p = Tree S_QUIP (sp p)
+
+lw :: Int -> String -> Node;   lw c s = N_LEAF (sp c) (L_WORD s)
+lt :: Int -> String -> Node;   lt c s = N_LEAF (sp c) (L_TRAD s)
+lu :: Int -> String -> Node;   lu c s = N_LEAF (sp c) (L_UGLY s)
+ru :: Int -> String -> Node;   ru c r = N_RUNE (sp c) r
 ch :: Tree -> Node;            ch = N_CHILD
 cw :: Int -> String -> Node;   cw c s = ch $ clu c [lw c s]
 cwt :: Int -> String -> Node;  cwt c s = ch $ clu c [lt c s]

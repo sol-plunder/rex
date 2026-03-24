@@ -3,7 +3,7 @@
 
 module Rex.Tree2 where
 
-import Rex.Lex hiding (main)
+import Rex.Lex
 
 
 -- Parse Tree ------------------------------------------------------------------
@@ -16,7 +16,7 @@ data Leaf
   | L_BAD  String
   deriving (Eq, Show)
 
-data Node = N_RUNE !Int String | N_LEAF !Int Leaf | N_CHILD Tree
+data Node = N_RUNE !Span String | N_LEAF !Span Leaf | N_CHILD Tree
   deriving (Eq, Show)
 
 data Bracket = Paren | Brack | Curly | Clear
@@ -27,11 +27,19 @@ data Shape = S_NEST Bracket | S_CLUMP | S_QUIP | S_POEM | S_BLOCK | S_ITEM
 
 data Tree = Tree
   { treeShape :: !Shape
-  , treePos   :: !Int
-  , treeOff   :: !Int     -- character offset into source
-  , treeLen   :: !Int     -- extent in characters
+  , treeSpan  :: !Span
   , treeNodes :: [Node]
   } deriving (Eq, Show)
+
+-- Compatibility accessors
+treePos :: Tree -> Int
+treePos = spanCol . treeSpan
+
+treeOff :: Tree -> Int
+treeOff = spanOff . treeSpan
+
+treeLen :: Tree -> Int
+treeLen = spanLen . treeSpan
 
 
 -- Contexts and Stack ----------------------------------------------------------
@@ -43,7 +51,8 @@ data CtxTy = CT_NEST !Bracket | CT_CLUMP | CT_POEM | CT_BLOCK | CT_ITEM
 -- It gets set on the first substantive appendNode.
 data Ctx = Ctx
   { cxTy       :: !CtxTy
-  , cxPos      :: !Int
+  , cxLin      :: !Int        -- start line
+  , cxPos      :: !Int        -- start column
   , cxOff      :: !Int        -- start offset (maxBound = unset)
   , cxEnd      :: !Int        -- end offset of last substantive token
   , cxNodesRev :: [Node]
@@ -52,7 +61,7 @@ data Ctx = Ctx
   , cxLastRune :: !Bool
   } deriving (Eq, Show)
 
-data StackEntry = SE_CTX !Ctx | SE_QUIP !Int !Int  -- col, offset
+data StackEntry = SE_CTX !Ctx | SE_QUIP !Int !Int !Int  -- line, col, offset
   deriving (Eq, Show)
 
 type Stack = [StackEntry]
@@ -63,14 +72,14 @@ data P = P { pStk :: !Stack, pOut :: [(String, Tree)] } deriving (Eq, Show)
 -- Helpers ---------------------------------------------------------------------
 
 nodeCol :: Node -> Int
-nodeCol = \case N_RUNE c _ -> c; N_LEAF c _ -> c; N_CHILD t -> treePos t
+nodeCol = \case N_RUNE sp _ -> spanCol sp; N_LEAF sp _ -> spanCol sp; N_CHILD t -> treePos t
 
-mkCtx :: CtxTy -> Int -> Int -> Ctx
-mkCtx t p o = Ctx t p o o [] Nothing 0 False
+mkCtx :: CtxTy -> Int -> Int -> Int -> Ctx
+mkCtx t l p o = Ctx t l p o o [] Nothing 0 False
 
 -- | Root context with unset offset (will be set by first content).
 mkRootCtx :: Ctx
-mkRootCtx = Ctx (CT_NEST Clear) 0 maxBound 0 [] Nothing 0 False
+mkRootCtx = Ctx (CT_NEST Clear) 1 0 maxBound 0 [] Nothing 0 False
 
 ctxEmpty :: Ctx -> Bool
 ctxEmpty = null . cxNodesRev
@@ -78,11 +87,12 @@ ctxEmpty = null . cxNodesRev
 ctxNodes :: Ctx -> [Node]
 ctxNodes = reverse . cxNodesRev
 
--- | Append a node. noff=node start offset, end=node end offset.
--- Updates cxOff on first push (for root contexts with sentinel).
-appendNode :: Node -> Int -> Int -> Ctx -> Ctx
-appendNode n noff end c =
+-- | Append a node. nlin=node line, noff=node start offset, end=node end offset.
+-- Updates cxOff/cxLin on first push (for root contexts with sentinel).
+appendNode :: Node -> Int -> Int -> Int -> Ctx -> Ctx
+appendNode n nlin noff end c =
   c { cxNodesRev = n : cxNodesRev c
+    , cxLin      = if cxOff c == maxBound then nlin else cxLin c
     , cxOff      = if cxOff c == maxBound then noff else cxOff c
     , cxEnd      = max (cxEnd c) end
     , cxFirstCol = case cxFirstCol c of Nothing -> Just (nodeCol n); j -> j
@@ -92,7 +102,7 @@ appendNode n noff end c =
   where isR = case n of N_RUNE{} -> True; _ -> False
 
 finalize :: Ctx -> Tree
-finalize c = Tree sh (cxPos c) o (max 0 (cxEnd c - o)) (ctxNodes c)
+finalize c = Tree sh (Span (cxLin c) (cxPos c) o (max 0 (cxEnd c - o))) (ctxNodes c)
   where
     sh = case cxTy c of
            CT_NEST bk -> S_NEST bk; CT_CLUMP -> S_CLUMP
@@ -104,7 +114,7 @@ isLeafTy = \case WORD -> True; TRAD -> True; UGLY -> True
                  SLUG -> True; BAD  -> True; _    -> False
 
 mkLeaf :: Tok -> Node
-mkLeaf t = N_LEAF (col t) $ case ty t of
+mkLeaf t = N_LEAF (tokSpan t) $ case ty t of
     WORD -> L_WORD s; TRAD -> L_TRAD s; UGLY -> L_UGLY s
     SLUG -> L_SLUG s; _    -> L_BAD s
   where s = text t
@@ -116,10 +126,10 @@ freePos :: Tok -> Int
 freePos tok = (col tok - 1) + len tok
 
 freeNode :: Tok -> Node
-freeNode tok = N_RUNE (freePos tok) (text tok)
+freeNode tok = N_RUNE (Span (lin tok) (freePos tok) (off tok) (len tok)) (text tok)
 
 clmpNode :: Tok -> Node
-clmpNode tok = N_RUNE (col tok) (text tok)
+clmpNode tok = N_RUNE (tokSpan tok) (text tok)
 
 
 -- Finalization ----------------------------------------------------------------
@@ -127,10 +137,10 @@ clmpNode tok = N_RUNE (col tok) (text tok)
 pop :: Stack -> Stack
 
 -- Quip capture: wrap child in S_QUIP, deliver via pushLeaf
-pop (SE_CTX k : SE_QUIP qcol qoff : rest) =
+pop (SE_CTX k : SE_QUIP qlin qcol qoff : rest) =
     let tree = finalize k
-        quip = Tree S_QUIP qcol qoff (cxEnd k - qoff) [N_CHILD tree]
-    in pushLeaf (N_CHILD quip) qoff (cxEnd k) rest
+        quip = Tree S_QUIP (Span qlin qcol qoff (cxEnd k - qoff)) [N_CHILD tree]
+    in pushLeaf (N_CHILD quip) qlin qoff (cxEnd k) rest
 
 -- Empty block: discard
 pop (SE_CTX k : rest)
@@ -139,11 +149,11 @@ pop (SE_CTX k : rest)
 -- Nest: deliver via pushLeaf (enables juxtaposition)
 pop (SE_CTX k : rest)
     | case cxTy k of CT_NEST{} -> True; _ -> False
-    = let t = finalize k in pushLeaf (N_CHILD t) (treeOff t) (cxEnd k) rest
+    = let t = finalize k in pushLeaf (N_CHILD t) (spanLin (treeSpan t)) (treeOff t) (cxEnd k) rest
 
 -- Everything else: deliver via pushInto
 pop (SE_CTX k : rest) =
-    let t = finalize k in pushInto (N_CHILD t) (treeOff t) (cxEnd k) rest
+    let t = finalize k in pushInto (N_CHILD t) (spanLin (treeSpan t)) (treeOff t) (cxEnd k) rest
 
 pop _ = error "pop: cannot pop root"
 
@@ -153,19 +163,19 @@ popAll st            = popAll (pop st)
 
 
 -- Pushing into the stack ------------------------------------------------------
--- noff = node start offset, end = node end offset
+-- nlin = node line, noff = node start offset, end = node end offset
 
-pushInto :: Node -> Int -> Int -> Stack -> Stack
-pushInto n noff end (SE_CTX c : rest)        = SE_CTX (appendNode n noff end c) : rest
-pushInto n noff end (q@(SE_QUIP _ _) : rest) = q : pushInto n noff end rest
-pushInto _ _    _   []                       = error "pushInto: empty stack"
+pushInto :: Node -> Int -> Int -> Int -> Stack -> Stack
+pushInto n nlin noff end (SE_CTX c : rest)          = SE_CTX (appendNode n nlin noff end c) : rest
+pushInto n nlin noff end (q@(SE_QUIP _ _ _) : rest) = q : pushInto n nlin noff end rest
+pushInto _ _    _    _   []                         = error "pushInto: empty stack"
 
-pushLeaf :: Node -> Int -> Int -> Stack -> Stack
-pushLeaf node noff end st = pushInto node noff end (openClump (nodeCol node) noff st)
+pushLeaf :: Node -> Int -> Int -> Int -> Stack -> Stack
+pushLeaf node nlin noff end st = pushInto node nlin noff end (openClump nlin (nodeCol node) noff st)
 
-openClump :: Int -> Int -> Stack -> Stack
-openClump _   _   st@(SE_CTX c : _) | cxTy c == CT_CLUMP = st
-openClump col coff st = SE_CTX (mkCtx CT_CLUMP col coff) : st
+openClump :: Int -> Int -> Int -> Stack -> Stack
+openClump _   _   _    st@(SE_CTX c : _) | cxTy c == CT_CLUMP = st
+openClump lin col coff st = SE_CTX (mkCtx CT_CLUMP lin col coff) : st
 
 
 -- Context Dispatch ------------------------------------------------------------
@@ -183,7 +193,7 @@ dispatch tok (SE_CTX c : rest) = case cxTy c of
     CT_BLOCK   -> stepBlock  tok c rest
     CT_ITEM    -> stepItem   tok c rest
     CT_NEST{}  -> stepSpaced tok c rest
-dispatch tok (SE_QUIP qc qo : rest) = stepQuip tok qc qo rest
+dispatch tok (SE_QUIP ql qc qo : rest) = stepQuip tok ql qc qo rest
 dispatch _   [] = error "dispatch: empty stack"
 
 
@@ -192,41 +202,41 @@ dispatch _   [] = error "dispatch: empty stack"
 stepClump :: Tok -> Ctx -> Stack -> Stack
 stepClump tok ctx rest = case ty tok of
     _ | isLeafTy (ty tok) ->
-        SE_CTX (appendNode (mkLeaf tok) (off tok) (tokEnd tok) ctx) : rest
+        SE_CTX (appendNode (mkLeaf tok) (lin tok) (off tok) (tokEnd tok) ctx) : rest
     CLMP ->
-        SE_CTX (appendNode (clmpNode tok) (off tok) (tokEnd tok) ctx) : rest
+        SE_CTX (appendNode (clmpNode tok) (lin tok) (off tok) (tokEnd tok) ctx) : rest
     BEGIN ->
         let bk = case text tok of "(" -> Paren; "[" -> Brack
                                   "{" -> Curly; _   -> Paren
-        in SE_CTX (mkCtx (CT_NEST bk) (col tok) (off tok))
+        in SE_CTX (mkCtx (CT_NEST bk) (lin tok) (col tok) (off tok))
          : SE_CTX ctx : rest
     _ -> dispatch tok (pop (SE_CTX ctx : rest))
 
 
 -- Quip ------------------------------------------------------------------------
 
-stepQuip :: Tok -> Int -> Int -> Stack -> Stack
-stepQuip tok qcol qoff rest = case ty tok of
+stepQuip :: Tok -> Int -> Int -> Int -> Stack -> Stack
+stepQuip tok qlin qcol qoff rest = case ty tok of
     _ | isLeafTy (ty tok) ->
-        pushInto (mkLeaf tok) (off tok) (tokEnd tok)
-          (openClump (col tok) (off tok) (SE_QUIP qcol qoff : rest))
+        pushInto (mkLeaf tok) (lin tok) (off tok) (tokEnd tok)
+          (openClump (lin tok) (col tok) (off tok) (SE_QUIP qlin qcol qoff : rest))
     CLMP ->
-        pushInto (clmpNode tok) (off tok) (tokEnd tok)
-          (openClump (col tok) (off tok) (SE_QUIP qcol qoff : rest))
+        pushInto (clmpNode tok) (lin tok) (off tok) (tokEnd tok)
+          (openClump (lin tok) (col tok) (off tok) (SE_QUIP qlin qcol qoff : rest))
     FREE ->
         let pos = freePos tok
-        in pushInto (freeNode tok) (off tok) (tokEnd tok)
-          (SE_CTX (mkCtx CT_POEM pos (off tok)) : SE_QUIP qcol qoff : rest)
+        in pushInto (freeNode tok) (lin tok) (off tok) (tokEnd tok)
+          (SE_CTX (mkCtx CT_POEM (lin tok) pos (off tok)) : SE_QUIP qlin qcol qoff : rest)
     BEGIN ->
         let bk = case text tok of "(" -> Paren; "[" -> Brack
                                   "{" -> Curly; _   -> Paren
-        in SE_CTX (mkCtx (CT_NEST bk) (col tok) (off tok))
-         : openClump (col tok) (off tok) (SE_QUIP qcol qoff : rest)
+        in SE_CTX (mkCtx (CT_NEST bk) (lin tok) (col tok) (off tok))
+         : openClump (lin tok) (col tok) (off tok) (SE_QUIP qlin qcol qoff : rest)
     QUIP ->
-        SE_QUIP (col tok) (off tok)
-          : openClump (col tok) (off tok) (SE_QUIP qcol qoff : rest)
-    WYTE -> SE_QUIP qcol qoff : rest
-    EOL  -> SE_QUIP qcol qoff : rest
+        SE_QUIP (lin tok) (col tok) (off tok)
+          : openClump (lin tok) (col tok) (off tok) (SE_QUIP qlin qcol qoff : rest)
+    WYTE -> SE_QUIP qlin qcol qoff : rest
+    EOL  -> SE_QUIP qlin qcol qoff : rest
     END  -> dispatch tok rest
     _    -> dispatch tok rest
 
@@ -241,22 +251,22 @@ stepPoem tok ctx rest
         dispatch tok (pop (SE_CTX ctx : rest))
     | otherwise = case ty tok of
     _ | isLeafTy (ty tok) ->
-        pushLeaf (mkLeaf tok) (off tok) (tokEnd tok) (SE_CTX ctx : rest)
+        pushLeaf (mkLeaf tok) (lin tok) (off tok) (tokEnd tok) (SE_CTX ctx : rest)
     CLMP ->
-        pushInto (clmpNode tok) (off tok) (tokEnd tok)
-          (openClump (col tok) (off tok) (SE_CTX ctx : rest))
+        pushInto (clmpNode tok) (lin tok) (off tok) (tokEnd tok)
+          (openClump (lin tok) (col tok) (off tok) (SE_CTX ctx : rest))
     FREE ->
         let pos = freePos tok
-        in pushInto (freeNode tok) (off tok) (tokEnd tok)
-         $ SE_CTX (mkCtx CT_POEM pos (off tok))
+        in pushInto (freeNode tok) (lin tok) (off tok) (tokEnd tok)
+         $ SE_CTX (mkCtx CT_POEM (lin tok) pos (off tok))
          : closeClump (SE_CTX ctx : rest)
     BEGIN ->
         let bk = case text tok of "(" -> Paren; "[" -> Brack
                                   "{" -> Curly; _   -> Paren
-        in SE_CTX (mkCtx (CT_NEST bk) (col tok) (off tok))
-         : openClump (col tok) (off tok) (SE_CTX ctx : rest)
+        in SE_CTX (mkCtx (CT_NEST bk) (lin tok) (col tok) (off tok))
+         : openClump (lin tok) (col tok) (off tok) (SE_CTX ctx : rest)
     QUIP ->
-        SE_QUIP (col tok) (off tok) : closeClump (SE_CTX ctx : rest)
+        SE_QUIP (lin tok) (col tok) (off tok) : closeClump (SE_CTX ctx : rest)
     END ->
         dispatch tok (pop (SE_CTX ctx : rest))
     WYTE -> closeClump (SE_CTX ctx : rest)
@@ -276,30 +286,30 @@ stepPoem tok ctx rest
 stepSpaced :: Tok -> Ctx -> Stack -> Stack
 stepSpaced tok ctx rest = case ty tok of
     _ | isLeafTy (ty tok) ->
-        pushLeaf (mkLeaf tok) (off tok) (tokEnd tok) (SE_CTX ctx : rest)
+        pushLeaf (mkLeaf tok) (lin tok) (off tok) (tokEnd tok) (SE_CTX ctx : rest)
     CLMP ->
-        pushInto (clmpNode tok) (off tok) (tokEnd tok)
-          (openClump (col tok) (off tok) (SE_CTX ctx : rest))
+        pushInto (clmpNode tok) (lin tok) (off tok) (tokEnd tok)
+          (openClump (lin tok) (col tok) (off tok) (SE_CTX ctx : rest))
     FREE
         | ctxEmpty ctx || cxLastRune ctx ->
             let pos = freePos tok
-            in pushInto (freeNode tok) (off tok) (tokEnd tok)
-             $ SE_CTX (mkCtx CT_POEM pos (off tok))
+            in pushInto (freeNode tok) (lin tok) (off tok) (tokEnd tok)
+             $ SE_CTX (mkCtx CT_POEM (lin tok) pos (off tok))
              : closeClump (SE_CTX ctx : rest)
         | otherwise ->
-            SE_CTX (appendNode (freeNode tok) (off tok) (tokEnd tok) ctx) : rest
+            SE_CTX (appendNode (freeNode tok) (lin tok) (off tok) (tokEnd tok) ctx) : rest
     BEGIN ->
         let bk = case text tok of "(" -> Paren; "[" -> Brack
                                   "{" -> Curly; _   -> Paren
-        in SE_CTX (mkCtx (CT_NEST bk) (col tok) (off tok))
-         : openClump (col tok) (off tok) (SE_CTX ctx : rest)
+        in SE_CTX (mkCtx (CT_NEST bk) (lin tok) (col tok) (off tok))
+         : openClump (lin tok) (col tok) (off tok) (SE_CTX ctx : rest)
     END ->
         -- Include closing bracket in nest's extent, then pop.
         let st = closeClump (SE_CTX ctx : rest)
             st' = updateTopEnd (tokEnd tok) st
         in pop st'
     QUIP ->
-        SE_QUIP (col tok) (off tok) : closeClump (SE_CTX ctx : rest)
+        SE_QUIP (lin tok) (col tok) (off tok) : closeClump (SE_CTX ctx : rest)
     WYTE -> closeClump (SE_CTX ctx : rest)
     EOL  -> tryOpenBlock (closeClump (SE_CTX ctx : rest))
     _ -> SE_CTX ctx : rest
@@ -328,7 +338,7 @@ stepBlock tok ctx rest
     | isReal, col tok < cxPos ctx =
         dispatch tok (pop (SE_CTX ctx : rest))
     | isReal, col tok >= cxPos ctx =
-        let st = SE_CTX (mkCtx CT_ITEM (col tok) (off tok))
+        let st = SE_CTX (mkCtx CT_ITEM (lin tok) (col tok) (off tok))
                : SE_CTX (ctx { cxPos = col tok })
                : rest
         in dispatch tok st
@@ -349,7 +359,7 @@ tryOpenBlock st@(SE_CTX c : _)
     , cxLastRune c
     , cxRuneCnt c == 1
     , Just firstCol <- cxFirstCol c
-    = SE_CTX (mkCtx CT_BLOCK (1 + firstCol) (cxEnd c)) : st
+    = SE_CTX (mkCtx CT_BLOCK (cxLin c) (1 + firstCol) (cxEnd c)) : st
 tryOpenBlock st = st
 
 closeClump :: Stack -> Stack
@@ -389,10 +399,11 @@ parseRex src =
 ppTree :: Tree -> String
 ppTree = go 0
  where
-  go i (Tree sh pos o n nodes) =
-    indent i ++ showShape sh ++ " @" ++ show pos
-    ++ " [" ++ show o ++ "+" ++ show n ++ "]\n"
+  go i (Tree sh sp nodes) =
+    indent i ++ showShape sh ++ " " ++ ppSpan sp ++ "\n"
     ++ concatMap (ppNode (i+2)) nodes
+
+  ppSpan (Span l c o n) = show l ++ ":" ++ show c ++ " [" ++ show o ++ "+" ++ show n ++ "]"
 
   showShape = \case
     S_NEST Paren -> "PAREN"; S_NEST Brack -> "BRACK"
@@ -402,10 +413,10 @@ ppTree = go 0
 
   ppNode :: Int -> Node -> String
   ppNode i = \case
-    N_RUNE c r  -> indent i ++ "RUNE @" ++ show c ++ " " ++ show r ++ "\n"
-    N_LEAF c lf -> indent i ++ leafTag lf ++ " @" ++ show c ++ " "
-                            ++ show (leafText lf) ++ "\n"
-    N_CHILD tr  -> go i tr
+    N_RUNE sp r  -> indent i ++ "RUNE " ++ ppSpan sp ++ " " ++ show r ++ "\n"
+    N_LEAF sp lf -> indent i ++ leafTag lf ++ " " ++ ppSpan sp ++ " "
+                             ++ show (leafText lf) ++ "\n"
+    N_CHILD tr   -> go i tr
 
   leafTag = \case
     L_WORD{} -> "WORD"; L_TRAD{} -> "TRAD"; L_UGLY{} -> "UGLY"

@@ -1,7 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-x-partial #-}
 
-module Rex.Lex where
+module Rex.Lex
+    ( TokTy(..), Tok(..), Span(..)
+    , lexRex, bsplit, tokSpan
+    , lexMain
+    )
+where
 
 import Data.Char (isAlphaNum)
 import Data.List (intercalate)
@@ -13,35 +18,47 @@ data TokTy = BAD | EOL | EOF | WYTE | BEGIN | END | CLMP | FREE | WORD | TRAD
            | QUIP | UGLY | SLUG | EOB
   deriving (Eq, Show)
 
+-- | Source span: line, column, byte offset, byte length
+data Span = Span
+  { spanLin :: !Int   -- 1-indexed line number
+  , spanCol :: !Int   -- 1-indexed column
+  , spanOff :: !Int   -- byte offset into source
+  , spanLen :: !Int   -- length in bytes
+  } deriving (Eq, Show)
+
 data Tok = Tok
   { ty   :: !TokTy
-  , col  :: !Int
+  , lin  :: !Int      -- 1-indexed line number
+  , col  :: !Int      -- 1-indexed column
   , off  :: !Int      -- character offset into source
   , len  :: !Int      -- length in characters
   , text :: !String
   } deriving (Eq, Show)
 
+tokSpan :: Tok -> Span
+tokSpan t = Span (lin t) (col t) (off t) (len t)
+
 
 -- Lexer -----------------------------------------------------------------------
 
 lexRex :: String -> [Tok]
-lexRex = go 0 0
+lexRex = go 1 0 0   -- line=1, col=0, offset=0
  where
-  go _ o [] = [Tok EOF 0 o 0 ""]
-  go c o s@(x:xs)
-    | x=='\n'          = Tok EOL 0 o 1 "\n" : go 0 (o+1) xs
+  go _ _ o [] = [Tok EOF 1 0 o 0 ""]
+  go l c o s@(x:xs)
+    | x=='\n'          = Tok EOL l 0 o 1 "\n" : go (l+1) 0 (o+1) xs
     | x==' '||x=='\t'  = let (w,r)=span (`elem`" \t") s; n=length w
-                         in Tok WYTE (c+1) o n w : go (c+n) (o+n) r
-    | x `elem` "([{"   = Tok BEGIN (c+1) o 1 [x] : go (c+1) (o+1) xs
-    | x `elem` ")]}"   = Tok END   (c+1) o 1 [x] : go (c+1) (o+1) xs
-    | x=='"'           = let (t,r,c',o')=trad (c+1) (o+1) xs in t : go c' o' r
-    | x=='\''          = let (ts,r,c',o')=tick (c+1) (o+1) xs in ts ++ go c' o' r
+                         in Tok WYTE l (c+1) o n w : go l (c+n) (o+n) r
+    | x `elem` "([{"   = Tok BEGIN l (c+1) o 1 [x] : go l (c+1) (o+1) xs
+    | x `elem` ")]}"   = Tok END   l (c+1) o 1 [x] : go l (c+1) (o+1) xs
+    | x=='"'           = let (t,r,c',o',l')=trad l (c+1) (o+1) xs in t : go l' c' o' r
+    | x=='\''          = let (ts,r,c',o',l')=tick l (c+1) (o+1) xs in ts ++ go l' c' o' r
     | rune x           = let (r,rst)=span rune s; n=length r
                              k = if isFree rst then FREE else CLMP
-                         in Tok k (c+1) o n r : go (c+n) (o+n) rst
+                         in Tok k l (c+1) o n r : go l (c+n) (o+n) rst
     | word x           = let (w,rst)=span word s; n=length w
-                         in Tok WORD (c+1) o n w : go (c+n) (o+n) rst
-    | otherwise        = Tok BAD  (c+1) o 1 [x] : go (c+1) (o+1) xs
+                         in Tok WORD l (c+1) o n w : go l (c+n) (o+n) rst
+    | otherwise        = Tok BAD  l (c+1) o 1 [x] : go l (c+1) (o+1) xs
 
 -- | A rune is FREE when followed by space, newline, close bracket, or EOF.
 isFree :: String -> Bool
@@ -59,95 +76,97 @@ rune :: Char -> Bool
 rune ch = ch `elem` (";,:#$`~@?\\|^&=!<>+-*/%!." :: String)
 
 -- TRAD strings
--- sc = start column of opening ", so = offset of first body char (after ")
-trad :: Int -> Int -> String -> (Tok, String, Int, Int)
-trad sc so = go "\"" sc so
+-- sl = start line, sc = start column of opening ", so = offset of first body char (after ")
+trad :: Int -> Int -> Int -> String -> (Tok, String, Int, Int, Int)
+trad sl sc so = go "\"" sl sc so
  where
   tokOff = so - 1  -- offset of the opening "
-  go acc c o = \case
-    []            -> (Tok BAD sc tokOff (o - tokOff) acc, [], c, o)
-    '"':'"':rest  -> go (acc++"\"\"") (c+2) (o+2) rest
+  go acc l c o = \case
+    []            -> (Tok BAD sl sc tokOff (o - tokOff) acc, [], c, o, l)
+    '"':'"':rest  -> go (acc++"\"\"") l (c+2) (o+2) rest
     '"':rest      -> let raw = acc ++ "\""
-                     in (Tok TRAD sc tokOff (o + 1 - tokOff) raw, rest, c+1, o+1)
-    ch:rest       -> go (acc++[ch]) (c+1) (o+1) rest
+                     in (Tok TRAD sl sc tokOff (o + 1 - tokOff) raw, rest, c+1, o+1, l)
+    '\n':rest     -> go (acc++"\n") (l+1) 0 (o+1) rest
+    ch:rest       -> go (acc++[ch]) l (c+1) (o+1) rest
 
 -- Tick dispatch: QUIP / SLUG / UGLY / NOTE
-tick :: Int -> Int -> String -> ([Tok], String, Int, Int)
-tick tcol to rest =
+tick :: Int -> Int -> Int -> String -> ([Tok], String, Int, Int, Int)
+tick tlin tcol to rest =
   let tickOff = to - 1   -- the tick itself
   in case rest of
-    [] -> ([Tok QUIP tcol tickOff 1 "'"], [], tcol, to)
+    [] -> ([Tok QUIP tlin tcol tickOff 1 "'"], [], tcol, to, tlin)
 
     c:_ | c == ' ' || c == '\n' ->
-            let (tok, rest') = lexSlug tcol tickOff rest
-            in ([tok], rest', tcol + len tok, tickOff + len tok)
+            let (tok, rest', lin') = lexSlug tlin tcol tickOff rest
+            in ([tok], rest', tcol + len tok, tickOff + len tok, lin')
         | c == '\'' ->
             let (qs, body0) = span (=='\'') rest
                 n           = 1 + length qs
                 col0        = tcol + n
                 off0        = to + length qs
-                (tok, r, c', o') = lexUgly tcol tickOff n col0 off0 body0
-            in ([tok], r, c', o')
+                (tok, r, c', o', l') = lexUgly tlin tcol tickOff n col0 off0 body0
+            in ([tok], r, c', o', l')
         | c `elem` ")]}" ->
-            let (tok, r, c', o') = lexNote tcol tickOff rest to
-            in ([tok], r, c', o')
+            let (tok, r, c', o', l') = lexNote tlin tcol tickOff rest to
+            in ([tok], r, c', o', l')
         | otherwise ->
-            ([Tok QUIP tcol tickOff 1 "'"], rest, tcol, to)
+            ([Tok QUIP tlin tcol tickOff 1 "'"], rest, tcol, to, tlin)
 
 isQuipChar :: Char -> Bool
 isQuipChar = (`notElem` "()[]{}\n\t ")
 
-lexNote :: Int -> Int -> String -> Int -> (Tok, String, Int, Int)
-lexNote sc so xs xo =
+lexNote :: Int -> Int -> Int -> String -> Int -> (Tok, String, Int, Int, Int)
+lexNote sl sc so xs xo =
     let (ln,r) = break (=='\n') xs
         raw    = '\'':ln
         n      = length raw
-    in ( Tok WYTE sc so n raw
+    in ( Tok WYTE sl sc so n raw
        , r
        , if null r then sc+length ln else 0
        , xo + length ln
+       , sl  -- line doesn't change, note stays on one line
        )
 
 -- UGLY strings ('''-delimited, either block or inline form)
 -- The lexer just matches tick sequences; validation happens in Rex loading.
-lexUgly :: Int -> Int -> Int -> Int -> Int -> String -> (Tok, String, Int, Int)
-lexUgly tcol tokOff n col0 off0 xs =
-  let (lit, rest, closed, colEnd, offEnd) = scanUgly 0 (col0-1) (off0-1) xs
+lexUgly :: Int -> Int -> Int -> Int -> Int -> Int -> String -> (Tok, String, Int, Int, Int)
+lexUgly tlin tcol tokOff n col0 off0 xs =
+  let (lit, rest, closed, colEnd, offEnd, linEnd) = scanUgly 0 tlin (col0-1) (off0-1) xs
       ty' = if closed then UGLY else BAD
       raw = replicate n '\'' ++ lit
-  in (Tok ty' tcol tokOff (offEnd - tokOff) raw, rest, colEnd, offEnd)
+  in (Tok ty' tlin tcol tokOff (offEnd - tokOff) raw, rest, colEnd, offEnd, linEnd)
  where
-  scanUgly :: Int -> Int -> Int -> String -> (String, String, Bool, Int, Int)
-  scanUgly run col' off' = \case
-    [] -> ([], [], False, col', off')  -- unclosed = BAD
+  scanUgly :: Int -> Int -> Int -> Int -> String -> (String, String, Bool, Int, Int, Int)
+  scanUgly run lin' col' off' = \case
+    [] -> ([], [], False, col', off', lin')  -- unclosed = BAD
     ch:cs ->
-      let col'' = if ch=='\n' then 0 else col'+1
+      let (col'', lin'') = if ch=='\n' then (0, lin'+1) else (col'+1, lin')
           off'' = off' + 1
       in if ch=='\''
            then let run' = run+1
                 in if run' == n
-                     then (replicate n '\'', cs, True, col'', off'')
-                     else let (a,b,closed,k,o) = scanUgly run' col'' off'' cs
-                          in (a, b, closed, k, o)
+                     then (replicate n '\'', cs, True, col'', off'', lin'')
+                     else let (a,b,closed,k,o,l) = scanUgly run' lin'' col'' off'' cs
+                          in (a, b, closed, k, o, l)
            else let pending = replicate run '\''
-                    (a,b,closed,k,o) = scanUgly 0 col'' off'' cs
-                in (pending ++ ch:a, b, closed, k, o)
+                    (a,b,closed,k,o,l) = scanUgly 0 lin'' col'' off'' cs
+                in (pending ++ ch:a, b, closed, k, o, l)
 
 -- SLUG strings
-lexSlug :: Int -> Int -> String -> (Tok, String)
-lexSlug tcol tokOff rest =
-  let (raw, rest') = go "'" rest
-  in (Tok SLUG tcol tokOff (length raw) raw, rest')
+lexSlug :: Int -> Int -> Int -> String -> (Tok, String, Int)
+lexSlug tlin tcol tokOff rest =
+  let (raw, rest', linEnd) = go "'" tlin rest
+  in (Tok SLUG tlin tcol tokOff (length raw) raw, rest', linEnd)
  where
-  go acc xs =
+  go acc lin' xs =
     let (line, rest1) = break (== '\n') xs
         acc'          = acc ++ line
     in case rest1 of
-         []        -> (acc', [])
+         []        -> (acc', [], lin')
          ('\n':rs) ->
            case shouldContinue tcol rs of
-             Just rs' -> go (acc' ++ "\n" ++ "'") rs'
-             Nothing  -> (acc', '\n':rs)
+             Just rs' -> go (acc' ++ "\n" ++ "'") (lin'+1) rs'
+             Nothing  -> (acc', '\n':rs, lin')
 
   shouldContinue t s =
     let (sp, rest2) = span (== ' ') s
@@ -197,12 +216,12 @@ bsplit = go OUTSIDE [] 0 False
         SINGLE_LN
           | null stk && ty t == EOL && eol == 1 ->
               if wasRune then ([t], BLK)
-              else ([Tok EOB 0 (off t) 0 ""], OUTSIDE)
+              else ([Tok EOB (lin t) 0 (off t) 0 ""], OUTSIDE)
           | otherwise -> ([t], SINGLE_LN)
 
         BLK
           | null stk && ty t == EOL && eol == 2 ->
-              ([Tok EOB 0 (off t) 0 ""], OUTSIDE)
+              ([Tok EOB (lin t) 0 (off t) 0 ""], OUTSIDE)
           | otherwise -> ([t], BLK)
 
 isContent :: TokTy -> Bool
@@ -214,13 +233,16 @@ isContent = \case EOL -> False; WYTE -> False; EOF -> False; EOB -> False; _ -> 
 ppToks :: [Tok] -> String
 ppToks ts =
   let wTy  = maximum (3 : map (length . show . ty) ts)
+      wLin = maximum (1 : map (length . show . lin) ts)
       wCol = maximum (1 : map (length . show . col) ts)
-  in concatMap (ppTok wTy wCol) ts
+  in concatMap (ppTok wTy wLin wCol) ts
 
-ppTok :: Int -> Int -> Tok -> String
-ppTok wTy wCol t =
+ppTok :: Int -> Int -> Int -> Tok -> String
+ppTok wTy wLin wCol t =
   let hdr = padR wTy (show (ty t))
          ++ "  "
+         ++ padL wLin (show (lin t))
+         ++ ":"
          ++ padL wCol (show (col t))
          ++ "  "
          ++ padL 4 (show (off t))

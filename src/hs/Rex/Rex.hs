@@ -10,7 +10,8 @@ where
 
 import qualified Rex.Tree2 as Tr
 
-import Rex.Tree2  (Bracket (..), Leaf (..), Node (..), Shape (..), Tree (..))
+import Rex.Lex    (Span (..))
+import Rex.Tree2  (Bracket (..), Leaf (..), Node (..), Shape (..), Tree (..), treePos)
 import Data.List  (nubBy, sortBy)
 
 
@@ -180,8 +181,10 @@ stripN _ s = s  -- non-space or end of string
 -- and producing a LEAF QUIP.
 
 quipToRex :: String -> Int -> Tree -> Rex
-quipToRex src blockOff (Tree S_QUIP _ qoff qlen _) =
-    let s = take qlen (drop (qoff - blockOff) src)
+quipToRex src blockOff tree@(Tree S_QUIP _ _) =
+    let qoff = Tr.treeOff tree
+        qlen = Tr.treeLen tree
+        s = take qlen (drop (qoff - blockOff) src)
     in LEAF QUIP s
 quipToRex _ _ t = error $ "quipToRex: not a quip: " ++ show (treeShape t)
 
@@ -193,7 +196,7 @@ quipToRex _ _ t = error $ "quipToRex: not a quip: " ++ show (treeShape t)
 -- offset where it starts in the original source.
 
 convertWith :: String -> Int -> Tree -> Rex
-convertWith src blockOff tree@(Tree shape _pos _off _len nodes) = case shape of
+convertWith src blockOff tree@(Tree shape _ nodes) = case shape of
     S_NEST bk -> convertNest src blockOff bk nodes
     S_CLUMP   -> convertClump src blockOff nodes
     S_POEM    -> convertPoem src blockOff (treePos tree) nodes
@@ -259,7 +262,7 @@ applyColor color rex = case rex of
 extractBlock :: [Node] -> Maybe ([Node], String, [Tree])
 extractBlock nodes =
     case reverse nodes of
-      (N_CHILD (Tree S_BLOCK _ _ _ blockNodes) : N_RUNE _ rune : revHead) ->
+      (N_CHILD (Tree S_BLOCK _ blockNodes) : N_RUNE _ rune : revHead) ->
           let items = [t | N_CHILD t <- blockNodes]
           in Just (reverse revHead, rune, items)
       _ -> Nothing
@@ -355,7 +358,7 @@ flattenHeir r         = [r]
 -- Node Conversion -------------------------------------------------------------
 
 convertNode :: String -> Int -> Node -> Rex
-convertNode _   _        (N_LEAF c lf)  = leafToRex c lf
+convertNode _   _        (N_LEAF sp lf) = leafToRex (spanCol sp) lf
 convertNode src blockOff (N_CHILD tree) = convertWith src blockOff tree
 convertNode _   _        (N_RUNE _ r)   = error $ "convertNode: bare rune: " ++ r
 
@@ -366,9 +369,9 @@ data Elem = E_RUNE String | E_REX Rex | E_BLOCK String [Tree]
 
 nodeToElem :: String -> Int -> Node -> Elem
 nodeToElem _   _        (N_RUNE _ r)   = E_RUNE r
-nodeToElem _   _        (N_LEAF c lf)  = E_REX (leafToRex c lf)
+nodeToElem _   _        (N_LEAF sp lf) = E_REX (leafToRex (spanCol sp) lf)
 nodeToElem src blockOff (N_CHILD tree) = case tree of
-    Tree S_BLOCK _ _ _ blockNodes ->
+    Tree S_BLOCK _ blockNodes ->
         -- Extract the rune that precedes this block by looking at context
         -- For now, we'll handle this in the grouping phase
         E_BLOCK "" [t | N_CHILD t <- blockNodes]
@@ -407,8 +410,8 @@ rexFromTree = convertWith "" 0
 
 rexFromBlockTree :: String -> Tree -> Maybe Rex
 rexFromBlockTree src tree = case tree of
-    Tree (S_NEST Clear) _ _ _ [] -> Nothing
-    Tree (S_NEST Clear) _ o _ ns -> Just $ convertSpaced src o CLEAR ns
+    Tree (S_NEST Clear) _ [] -> Nothing
+    Tree (S_NEST Clear) _ ns -> Just $ convertSpaced src (Tr.treeOff tree) CLEAR ns
     _ -> error "top level tree is always Clear"
 
 
