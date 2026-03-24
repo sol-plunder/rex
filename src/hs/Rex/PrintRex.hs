@@ -47,6 +47,7 @@ rexDoc = \case
 -- handling to re-add appropriate prefixes/indentation.
 
 leafDoc :: LeafShape -> String -> PDoc
+leafDoc PAGE s = formatPageMulti (lines s)  -- PAGE always uses block form
 leafDoc shape s
     | '\n' `notElem` s = pdocText (formatLeafSingle shape s)
     | otherwise        = formatLeafMulti shape s
@@ -56,7 +57,8 @@ formatLeafSingle :: LeafShape -> String -> String
 formatLeafSingle WORD s = s
 formatLeafSingle QUIP s = s  -- quips already have their quote
 formatLeafSingle TRAD s = "\"" ++ escapeQuotes s ++ "\""
-formatLeafSingle UGLY s = "'''" ++ s ++ "'''"
+formatLeafSingle PAGE _ = error "PAGE should use formatPageMulti"
+formatLeafSingle SPAN s = "'''" ++ s ++ "'''"
 formatLeafSingle SLUG s = "' " ++ s
 
 -- | Escape quotes for TRAD strings: " becomes ""
@@ -69,7 +71,8 @@ escapeQuotes (c:rest) = c : escapeQuotes rest
 formatLeafMulti :: LeafShape -> String -> PDoc
 formatLeafMulti SLUG s = formatSlugMulti (lines s)
 formatLeafMulti TRAD s = formatTradMulti (lines s)
-formatLeafMulti UGLY s = formatUglyMulti (lines s)
+formatLeafMulti PAGE s = formatPageMulti (lines s)
+formatLeafMulti SPAN s = formatSpanMulti (lines s)
 formatLeafMulti WORD s = pdocText s  -- shouldn't have newlines, but handle anyway
 formatLeafMulti QUIP s = pdocText s  -- shouldn't have newlines
 
@@ -93,15 +96,27 @@ formatTradMulti (l:ls) =
     tradRest [] = PEmpty
     tradRest (x:xs) = PCat PLine (PCat (pdocText (escapeQuotes x)) (tradRest xs))
 
--- | Format multi-line UGLY: block form with ''' delimiters
+-- | Format multi-line PAGE: block form with ''' delimiters
 -- Opening and closing ''' must be at the same column
-formatUglyMulti :: [String] -> PDoc
-formatUglyMulti ls =
-    PDent (PCat (pdocText "'''") (PCat PLine (PCat (uglyContent ls) (PCat PLine (pdocText "'''")))))
+formatPageMulti :: [String] -> PDoc
+formatPageMulti ls =
+    PDent (PCat (pdocText "'''") (PCat PLine (PCat (pageContent ls) (PCat PLine (pdocText "'''")))))
   where
-    uglyContent [] = PEmpty
-    uglyContent [x] = pdocText x
-    uglyContent (x:xs) = PCat (pdocText x) (PCat PLine (uglyContent xs))
+    pageContent [] = PEmpty
+    pageContent [x] = pdocText x
+    pageContent (x:xs) = PCat (pdocText x) (PCat PLine (pageContent xs))
+
+-- | Format multi-line SPAN: inline form with ''' delimiters
+-- PDent is set after ''' so continuation lines align to the content column.
+-- This matches the lexer requirement that continuations be indented past the
+-- opening ''' position.
+formatSpanMulti :: [String] -> PDoc
+formatSpanMulti [] = pdocText "''''''"
+formatSpanMulti (l:ls) =
+    PCat (pdocText "'''") (PDent (PCat (pdocText l) (PCat (spanRest ls) (pdocText "'''"))))
+  where
+    spanRest [] = PEmpty
+    spanRest (x:xs) = PCat PLine (PCat (pdocText x) (spanRest xs))
 
 
 -- NEST: Infix bracket forms like (a + b), {a | b} --------------------------------

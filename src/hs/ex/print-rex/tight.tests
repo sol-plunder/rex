@@ -32,3 +32,35 @@ f(x)[i]
 
 === complex juxt | 80
 foo(bar)[baz](qux)
+
+-- PAGE in tight context
+=== juxt with page | 80
+x.b'''
+   page content
+   '''
+
+=== juxt with multiline page | 80
+foo'''
+    line one
+    line two
+    '''
+
+=== dot chain with page | 80
+a.b.c'''
+     multi
+     line
+     '''
+
+-- SPAN in tight context
+=== juxt with span | 80
+x.'''span content'''
+
+=== juxt with multiline span | 80
+foo.'''line one
+       line two'''
+
+=== dot chain with span | 80
+a.b.c.'''hello'''
+
+=== function call with span arg | 80
+f('''arg with "quotes"''')

@@ -16,7 +16,7 @@ import Data.List  (nubBy, sortBy)
 
 -- Rex Data Model --------------------------------------------------------------
 
-data LeafShape = WORD | QUIP | TRAD | UGLY | SLUG
+data LeafShape = WORD | QUIP | TRAD | PAGE | SPAN | SLUG
   deriving (Eq, Show)
 
 data Color = PAREN | BRACK | CURLY | CLEAR
@@ -61,7 +61,8 @@ leafToRex :: Int -> Leaf -> Rex
 leafToRex col = \case
     L_WORD s -> LEAF WORD s
     L_TRAD s -> LEAF TRAD (stripTrad col s)
-    L_UGLY s -> LEAF UGLY (stripUgly col s)
+    L_PAGE s -> LEAF PAGE (stripPage col s)
+    L_SPAN s -> LEAF SPAN (stripSpan col s)
     L_SLUG s -> LEAF SLUG (stripSlug s)
     L_BAD  s -> LEAF WORD s  -- BAD tokens are errors, don't process
 
@@ -75,10 +76,10 @@ stripTrad col s =
             _         -> stripContinuations col rest  -- unclosed, just strip open quote
         _ -> s  -- no quotes, leave as is
 
--- | Strip an UGLY string: remove ''' delimiters, strip leading whitespace
+-- | Strip a PAGE string: remove ''' delimiters, strip leading whitespace
 -- from all lines based on opening quote column.
-stripUgly :: Int -> String -> String
-stripUgly col s =
+stripPage :: Int -> String -> String
+stripPage col s =
     let (ticks, afterOpen) = span (== '\'') s
         n = length ticks
     in if n >= 3
@@ -90,6 +91,27 @@ stripUgly col s =
                 '\n':rest -> stripAllLines col rest
                 _         -> stripAllLines col content
        else s  -- not a valid ugly string, leave as is
+  where
+    removeClosing ticks str =
+        let revTicks = reverse ticks
+            revStr = reverse str
+        in if take (length ticks) revStr == revTicks
+           then reverse (drop (length ticks) revStr)
+           else str  -- no closing ticks found
+
+-- | Strip a SPAN string: remove ''' delimiters, strip continuation indent.
+-- Continuation lines must be indented to the content column (after '''),
+-- so we strip (col + n - 1) where n is the number of ticks.
+stripSpan :: Int -> String -> String
+stripSpan col s =
+    let (ticks, afterOpen) = span (== '\'') s
+        n = length ticks
+    in if n >= 3
+       then let closeTicks = replicate n '\''
+                content = removeClosing closeTicks afterOpen
+                -- Strip to align with content column (after the ticks)
+            in stripContinuations (col + n - 1) content
+       else s  -- not a valid span string, leave as is
   where
     removeClosing ticks str =
         let revTicks = reverse ticks
@@ -130,14 +152,21 @@ unescapeQuotes ('"':'"':rest) = '"' : unescapeQuotes rest
 unescapeQuotes (c:rest) = c : unescapeQuotes rest
 
 -- | Strip leading whitespace from all lines based on column.
+-- Drops exactly one trailing empty line if present (this is the structural
+-- line containing only the closing ''' indent, not actual content).
 stripAllLines :: Int -> String -> String
 stripAllLines col s =
     case lines s of
         [] -> ""
-        ls -> unlines' (map (stripN col) ls)
+        ls -> unlines' (dropOneTrailingEmpty (map (stripN col) ls))
   where
     unlines' [] = ""
     unlines' xs = init (unlines xs)
+
+    -- Drop at most one trailing empty line (the ''' indent line)
+    dropOneTrailingEmpty xs = case reverse xs of
+        ("":rest) -> reverse rest
+        _         -> xs
 
 -- | Strip up to n leading spaces from a string.
 stripN :: Int -> String -> String

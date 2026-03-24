@@ -11,7 +11,8 @@ import Rex.Lex hiding (main)
 data Leaf
   = L_WORD String
   | L_TRAD String
-  | L_UGLY String
+  | L_PAGE String
+  | L_SPAN String
   | L_SLUG String
   | L_BAD  String
   deriving (Eq, Show)
@@ -100,12 +101,12 @@ finalize c = Tree sh (cxPos c) o (max 0 (cxEnd c - o)) (ctxNodes c)
     o  = if cxOff c == maxBound then 0 else cxOff c
 
 isLeafTy :: TokTy -> Bool
-isLeafTy = \case WORD -> True; TRAD -> True; UGLY -> True
+isLeafTy = \case WORD -> True; TRAD -> True; PAGE -> True; SPAN -> True
                  SLUG -> True; BAD  -> True; _    -> False
 
 mkLeaf :: Tok -> Node
 mkLeaf t = N_LEAF (col t) $ case ty t of
-    WORD -> L_WORD s; TRAD -> L_TRAD s; UGLY -> L_UGLY s
+    WORD -> L_WORD s; TRAD -> L_TRAD s; PAGE -> L_PAGE s; SPAN -> L_SPAN s
     SLUG -> L_SLUG s; _    -> L_BAD s
   where s = text t
 
@@ -402,11 +403,11 @@ ppTree = go 0
     N_CHILD tr  -> go i tr
 
   leafTag = \case
-    L_WORD{} -> "WORD"; L_TRAD{} -> "TRAD"; L_UGLY{} -> "UGLY"
+    L_WORD{} -> "WORD"; L_TRAD{} -> "TRAD"; L_PAGE{} -> "PAGE"; L_SPAN{} -> "SPAN"
     L_SLUG{} -> "SLUG"; L_BAD{}  -> "BAD"
 
   leafText = \case
-    L_WORD s -> s; L_TRAD s -> s; L_UGLY s -> s
+    L_WORD s -> s; L_TRAD s -> s; L_PAGE s -> s; L_SPAN s -> s
     L_SLUG s -> s; L_BAD  s -> s
 
   indent n = replicate n ' '

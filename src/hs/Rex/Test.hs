@@ -114,14 +114,20 @@ qup :: Int -> [Node] -> Tree;  qup p = Tree S_QUIP p 0 0
 
 lw :: Int -> String -> Node;   lw c s = N_LEAF c (L_WORD s)
 lt :: Int -> String -> Node;   lt c s = N_LEAF c (L_TRAD s)
+lp :: Int -> String -> Node;   lp c s = N_LEAF c (L_PAGE s)
+ls :: Int -> String -> Node;   ls c s = N_LEAF c (L_SPAN s)
 ru :: Int -> String -> Node;   ru = N_RUNE
 ch :: Tree -> Node;            ch = N_CHILD
 cw :: Int -> String -> Node;   cw c s = ch $ clu c [lw c s]
 cwt :: Int -> String -> Node;  cwt c s = ch $ clu c [lt c s]
+cwp :: Int -> String -> Node;  cwp c s = ch $ clu c [lp c s]
+cws :: Int -> String -> Node;  cws c s = ch $ clu c [ls c s]
 
 lf :: String -> Rex;           lf = LEAF WORD
 lfT :: String -> Rex;          lfT = LEAF TRAD
 lfQ :: String -> Rex;          lfQ = LEAF QUIP
+lfP :: String -> Rex;          lfP = LEAF PAGE
+lfS :: String -> Rex;          lfS = LEAF SPAN
 
 
 -- Tests -----------------------------------------------------------------------
@@ -150,6 +156,74 @@ tests =
   , Test "escaped quotes in string" "\"He said \"\"Hello\"\"\""
       [cle [cwt 1 "\"He said \"\"Hello\"\"\""]]
       (lfT "He said \"Hello\"")
+
+  -- SPAN (inline ugly) tests
+  , Test "span simple" "'''hello'''"
+      [cle [cws 1 "'''hello'''"]]
+      (lfS "hello")
+
+  , Test "span with quotes" "'''say \"hello\"'''"
+      [cle [cws 1 "'''say \"hello\"'''"]]
+      (lfS "say \"hello\"")
+
+  , Test "span in tight context" "x+'''y'''"
+      [cle [ch $ clu 1 [lw 1 "x", ru 2 "+", ls 3 "'''y'''"]]]
+      (TYTE "+" [lf "x", lfS "y"])
+
+  , Test "span in poem" "+ a '''hello'''"
+      [cle [ch $ pom 1 [ru 1 "+", cw 3 "a", cws 5 "'''hello'''"]]]
+      (OPEN "+" [lf "a", lfS "hello"])
+
+  , Test "span in parens" "(x, '''quoted''')"
+      [cle [ch $ clu 1 [ch $ par 1
+        [cw 2 "x", ru 3 ",", cws 5 "'''quoted'''"]]]]
+      (NEST PAREN "," [lf "x", lfS "quoted"])
+
+  , Test "span multiline" "'''line one\n   line two'''"
+      [cle [cws 1 "'''line one\n   line two'''"]]
+      (lfS "line one\nline two")
+
+  , Test "span in nest infix" "(a + '''b''')"
+      [cle [ch $ clu 1 [ch $ par 1
+        [cw 2 "a", ru 4 "+", cws 6 "'''b'''"]]]]
+      (NEST PAREN "+" [lf "a", lfS "b"])
+
+  , Test "span multiline in poem" "+ x '''line one\n       line two'''"
+      [cle [ch $ pom 1 [ru 1 "+", cw 3 "x", cws 5 "'''line one\n       line two'''"]]]
+      (OPEN "+" [lf "x", lfS "line one\nline two"])
+
+  , Test "span multiline in nest" "(a + '''line one\n        line two''')"
+      [cle [ch $ clu 1 [ch $ par 1
+        [cw 2 "a", ru 4 "+", cws 6 "'''line one\n        line two'''"]]]]
+      (NEST PAREN "+" [lf "a", lfS "line one\nline two"])
+
+  -- PAGE (block ugly) tests
+  , Test "page simple" "'''\nhello\n'''"
+      [cle [cwp 1 "'''\nhello\n'''"]]
+      (lfP "hello")
+
+  , Test "page multiline" "'''\nline one\nline two\n'''"
+      [cle [cwp 1 "'''\nline one\nline two\n'''"]]
+      (lfP "line one\nline two")
+
+  , Test "page in poem" "+ a '''\n    content\n    '''"
+      [cle [ch $ pom 1 [ru 1 "+", cw 3 "a", cwp 5 "'''\n    content\n    '''"]]]
+      (OPEN "+" [lf "a", lfP "content"])
+
+  , Test "page in parens" "(x, '''\n    body\n    ''')"
+      [cle [ch $ clu 1 [ch $ par 1
+        [cw 2 "x", ru 3 ",", cwp 5 "'''\n    body\n    '''"]]]]
+      (NEST PAREN "," [lf "x", lfP "body"])
+
+  , Test "span in block" "f =\n  '''content'''"
+      [cle [cw 1 "f", ru 3 "=", ch $ blk 3
+        [ch $ itm 3 [cws 3 "'''content'''"]]]]
+      (BLOC CLEAR "=" (lf "f") [lfS "content"])
+
+  , Test "page in block" "f =\n  '''\n  body\n  '''"
+      [cle [cw 1 "f", ru 3 "=", ch $ blk 3
+        [ch $ itm 3 [cwp 3 "'''\n  body\n  '''"]]]]
+      (BLOC CLEAR "=" (lf "f") [lfP "body"])
 
   ---- CLUMPS ------------------------------------------------------------------
 

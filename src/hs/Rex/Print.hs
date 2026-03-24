@@ -27,7 +27,8 @@ go col = \case
     LEAF WORD s -> (s, col + length s)
     LEAF QUIP s -> (s, col + length s)
     LEAF TRAD s -> endCol col s
-    LEAF UGLY s -> endCol col s
+    LEAF PAGE s -> endCol col s
+    LEAF SPAN s -> endCol col s
     LEAF SLUG s -> endCol col s
 
     NEST c r kids ->

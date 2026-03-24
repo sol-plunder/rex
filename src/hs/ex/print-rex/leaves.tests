@@ -20,14 +20,44 @@ foo
 ' line one
 ' line two
 
-=== ugly string | 80
+=== span simple | 80
 '''hello'''
 
-=== multiline ugly | 80
+=== span with quotes | 80
+'''say "hello" and 'goodbye'''
+
+=== span multiline | 80
+'''first line
+   second line'''
+
+=== span in poem | 80
++ x '''content'''
+
+=== span in infix | 80
+(a + '''b''')
+
+=== span multiline in poem | 80
++ x '''line one
+       line two'''
+
+=== span multiline in nest | 80
+(a + '''line one
+        line two''')
+
+=== span tight | 80
+x.'''y'''
+
+=== page multiline | 80
 '''
 line one
 line two
 '''
+
+=== page in poem | 80
++ x '''
+    content here
+    and more
+    '''
 
 === nested trad | 80
 | foo | bar - "line one
@@ -37,12 +67,16 @@ line two
 | foo | bar - ' line one
               ' line two
 
-=== nested ugly | 80
+=== nested page | 80
 | foo | bar - '''
-              Ugly String
+              Page String
+              More Content
               '''
 
-=== deeply nested multiline ugly | 80
+=== nested span | 80
+| foo | bar - '''span content'''
+
+=== deeply nested multiline page | 80
 | a | b | c | d - '''
                   line one
                   line two
