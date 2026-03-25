@@ -79,3 +79,32 @@
  | if y=0 !!"divide-by-zero"
  | if x<y 0
  | #(1 + (x-y / y))
+
+=== poem continuation | 80
++ a
+  b
+---
++ a b
+
+=== poem closed by close paren | 80
+(+ a b) c
+
+=== consecutive runes to poem | 80
+(x, + a b)
+---
+( x
+, + a b
+)
+
+=== rune+rune | 80
+(a b , + 3)
+---
+( a b
+, + 3
+)
+
+=== trailing rune after slot normalizes | 80
+(a b , 4 +)
+---
+(a b , 4)
+

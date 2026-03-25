@@ -1,0 +1,36 @@
+-- QUIPS: quoted forms
+
+=== quip of word | 80
+'x
+
+=== quip of tight form | 80
+'a.b
+
+=== quip in expression | 80
+f 'x y
+
+=== quip of parens | 80
+'(a + b)
+
+=== quip of poem | 80
+'+ a b
+
+=== quip with tight rune | 80
+'Quip;Semi
+
+=== quip with trad | 80
+'Quip"Trad"
+
+=== nested quips | 80
+'Quip 'Quip
+
+=== quip of brackets | 80
+'[b]
+
+=== quip juxt | 80
+('x(y))
+
+=== quip in nest with infix | 80
+(a, 'b, c)
+---
+(a , 'b , c)

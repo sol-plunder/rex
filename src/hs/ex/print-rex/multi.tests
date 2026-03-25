@@ -1,0 +1,43 @@
+-- MULTI: multi-input tests (double-newline separates inputs)
+
+=== two simple inputs | 80
+a
+
+b
+
+=== multi-input with expressions | 80
+a b
+
+c d
+
+=== multi-input quip | 80
+a
+
+(b , 'c)
+
+=== quip after expressions | 80
+x.y
+
+(a , 'b)
+
+=== three inputs | 80
+foo
+
+bar
+
+baz
+
+=== multi-input with block | 80
+f =
+  a
+  b
+
+g =
+  c
+---
+f =
+    a
+    b
+
+g =
+    c

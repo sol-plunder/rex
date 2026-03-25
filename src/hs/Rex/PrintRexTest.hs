@@ -114,15 +114,18 @@ run (Test name width input expected) =
             [ "  FAIL " ++ name
             , "    parse returned no trees for: " ++ show input
             ])
-        [(slice, tree)] ->
-            case rexFromBlockTree slice tree of
+        results ->
+            let rexResults = [ rexFromBlockTree slice tree
+                             | (slice, tree) <- results ]
+            in case sequence rexResults of
                 Nothing -> (False, unlines
                     [ "  FAIL " ++ name
-                    , "    rexFromBlockTree returned Nothing for: " ++ show input
+                    , "    rexFromBlockTree returned Nothing"
                     ])
-                Just rex ->
-                    let actual = printRex width rex
-                        ok     = actual == expected
+                Just rexes ->
+                    let actuals = map (printRex width) rexes
+                        actual  = joinBlankLines actuals
+                        ok      = actual == expected
                     in if ok
                        then (True, "  OK   " ++ name)
                        else (False, unlines
@@ -132,11 +135,12 @@ run (Test name width input expected) =
                                , "    expected: " ++ show expected
                                , "    actual:   " ++ show actual
                                ])
-        results -> (False, unlines
-            [ "  FAIL " ++ name
-            , "    parse returned multiple trees (" ++ show (length results)
-              ++ ") for: " ++ show input
-            ])
+
+-- | Join multiple outputs with blank lines (for multi-input tests)
+joinBlankLines :: [String] -> String
+joinBlankLines []  = ""
+joinBlankLines [x] = x
+joinBlankLines xs  = foldr1 (\a b -> a ++ "\n\n" ++ b) xs
 
 
 -- | Run tests and print results (for use in rex executable)

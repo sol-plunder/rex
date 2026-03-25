@@ -17,3 +17,17 @@
 
 === nested application | 80
 (f (g x) y)
+
+=== empty brackets | 80
+[]
+
+=== empty curlies | 80
+{}
+
+=== nested parens | 80
+((a))
+
+=== mixed brackets | 80
+(a, [b], {c})
+---
+(a , [b] , {c})

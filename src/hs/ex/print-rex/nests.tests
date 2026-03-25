@@ -24,6 +24,22 @@ a + b
 === trailing plus | 80
 (bar +)
 
+=== comma separated | 80
+(a, b, c)
+---
+(a , b , c)
+
+=== trailing comma multi normalizes | 80
+(3, 4 ,)
+---
+(3 , 4)
+
+=== top-level multi infix | 80
+a + b * c
+
+=== tight.infix mixed | 80
+foo.x + bar.y
+
 === readme config | 80
 { title : "TOML Example"
 , owner : {name : "Tom Preston-Werner" , dob : '1979-05-27T07:32:00-08:00}

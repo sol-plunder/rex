@@ -64,3 +64,24 @@ a.b.c.'''hello'''
 
 === function call with span arg | 80
 f('''arg with "quotes"''')
+
+=== prefix + tight infix | 80
+-x.y
+
+=== prefix + parens | 80
++(a)
+
+=== parens juxt | 80
+(a)(b)
+
+=== tight x+word | 80
+x+word
+
+=== tight x+"text" | 80
+x+"text"
+
+=== tight word+x | 80
+word+x
+
+=== trailing rune in parens | 80
+(a.b ,)

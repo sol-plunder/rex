@@ -45,3 +45,25 @@ def quicksort xs :
 === record with block values | 80
 {k1 :
     value1 , k2 : value2}
+
+=== block with expressions | 80
+f =
+    a + b
+    c + d
+
+=== nested block | 80
+f =
+    g =
+        x
+    y
+
+=== trailing rune in item opens nested block | 80
+f =
+    a +
+        b
+    c
+
+=== block in parens | 80
+(f =
+    a
+    b)
