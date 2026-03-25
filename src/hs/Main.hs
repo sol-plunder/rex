@@ -23,6 +23,7 @@ usage = unlines
     , "  lex         Tokenize stdin and print token stream"
     , "  tree        Parse stdin and print structural tree"
     , "  rex         Parse stdin and print Rex IR"
+    , "  check       Parse stdin and report any errors (BAD tokens)"
     , "  print       Parse stdin and pretty-print as Rex notation (old)"
     , "  pretty-rex  Parse stdin and pretty-print using new layout engine (Rex)"
     , "  test        Run Rex parser test suite"
@@ -36,6 +37,7 @@ main = do
         ["lex"]        -> Lex.lexMain
         ["tree"]       -> Tree2.treeMain
         ["rex"]        -> Rex.rexMain
+        ["check"]      -> Rex.checkMain
         ["print"]      -> Print.printMain
         ["pretty-rex"] -> PrintRex.prettyRexMain
         ["test"]       -> Test.testMain

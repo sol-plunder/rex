@@ -24,14 +24,16 @@ printRex rex = fst (go 0 rex)
 
 go :: Int -> Rex -> (String, Int)
 go col = \case
-    LEAF WORD s -> (s, col + length s)
-    LEAF QUIP s -> (s, col + length s)
-    LEAF TRAD s -> endCol col s
-    LEAF PAGE s -> endCol col s
-    LEAF SPAN s -> endCol col s
-    LEAF SLUG s -> endCol col s
+    LEAF _ WORD s -> (s, col + length s)
+    LEAF _ QUIP s -> (s, col + length s)
+    LEAF _ CORD s -> endCol col s
+    LEAF _ TAPE s -> endCol col s
+    LEAF _ PAGE s -> endCol col s
+    LEAF _ SPAN s -> endCol col s
+    LEAF _ SLUG s -> endCol col s
+    LEAF _ (BAD _) s -> (s, col + length s)
 
-    NEST c r kids ->
+    NEST _ c r kids ->
         let (open, close) = brackets c
             sep = " " ++ r ++ " "
         in case kids of
@@ -47,24 +49,24 @@ go col = \case
                        (strs, colEnd) = goSep sep col1 kids
                    in (open ++ strs ++ close, colEnd + length close)
 
-    EXPR c kids ->
+    EXPR _ c kids ->
         let (open, close) = brackets c
             col1 = col + length open
             (strs, colEnd) = goSep " " col1 kids
         in (open ++ strs ++ close, colEnd + length close)
 
-    PREF r child ->
+    PREF _ r child ->
         let col1 = col + length r
             (s, col2) = go col1 child
         in (r ++ s, col2)
 
-    TYTE r kids ->
+    TYTE _ r kids ->
         goTightSep r col kids
 
-    JUXT kids ->
+    JUXT _ kids ->
         goJuxtAll col kids
 
-    HEIR kids ->
+    HEIR _ kids ->
         -- Each element on its own line at the same column.
         case kids of
           []     -> ("", col)
@@ -77,7 +79,7 @@ go col = \case
                     in pad ++ sr) ks
             in (s0 ++ rest, col)
 
-    BLOC c r hd items ->
+    BLOC _ c r hd items ->
         -- Print as: head rune\n  item1\n  item2
         -- The head and rune are on the current line.
         -- Items are indented from the start of head.
@@ -97,7 +99,7 @@ go col = \case
              _     -> (open ++ body ++ "\n" ++ replicate col ' ' ++ close,
                        col + length close)
 
-    OPEN r kids ->
+    OPEN _ r kids ->
         -- Rune at current column, first child after space,
         -- remaining children each on own line indented past rune.
         let rlen = length r
@@ -141,10 +143,10 @@ goTightSep sep col (k:ks) =
 
 goTight :: Int -> Rex -> (String, Int)
 goTight col rex = case rex of
-    LEAF _ _ -> go col rex
-    JUXT _   -> go col rex
-    _        -> let (s, col2) = go (col+1) rex
-                in ("(" ++ s ++ ")", col2 + 1)
+    LEAF _ _ _ -> go col rex
+    JUXT _ _   -> go col rex
+    _          -> let (s, col2) = go (col+1) rex
+                  in ("(" ++ s ++ ")", col2 + 1)
 
 goJuxtAll :: Int -> [Rex] -> (String, Int)
 goJuxtAll col []     = ("", col)
@@ -156,13 +158,13 @@ goJuxtAll col (k:ks) =
 
 goJuxt :: Int -> Rex -> (String, Int)
 goJuxt col rex = case rex of
-    LEAF _ _      -> go col rex
-    NEST _ _ _    -> go col rex
-    EXPR _ _      -> go col rex
-    TYTE _ _      -> go col rex
-    PREF _ _      -> go col rex
-    _             -> let (s, col2) = go (col+1) rex
-                     in ("(" ++ s ++ ")", col2 + 1)
+    LEAF _ _ _      -> go col rex
+    NEST _ _ _ _    -> go col rex
+    EXPR _ _ _      -> go col rex
+    TYTE _ _ _      -> go col rex
+    PREF _ _ _      -> go col rex
+    _               -> let (s, col2) = go (col+1) rex
+                       in ("(" ++ s ++ ")", col2 + 1)
 
 brackets :: Color -> (String, String)
 brackets PAREN = ("(", ")")

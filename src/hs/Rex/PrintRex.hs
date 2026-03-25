@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
 
 -- Copyright (c) 2026 Benjamin Summers
@@ -79,15 +80,15 @@ cStringChar BoldColors c = PText 1 ("\x1b[32m" ++ [c] ++ "\x1b[0m")
 
 rexDoc :: ColorScheme -> Rex -> PDoc
 rexDoc cs = \case
-    LEAF sh s     -> leafDoc cs sh s
-    NEST c r kids -> nestDoc cs c r kids
-    EXPR c kids   -> exprDoc cs c kids
-    PREF r child  -> prefDoc cs r child
-    TYTE r kids   -> tyteDoc cs r kids
-    JUXT kids     -> juxtDoc cs kids
-    OPEN r kids   -> openDoc cs r kids
-    HEIR kids     -> heirDoc cs kids
-    BLOC c r hd items -> blocDoc cs c r hd items
+    LEAF _ sh s     -> leafDoc cs sh s
+    NEST _ c r kids -> nestDoc cs c r kids
+    EXPR _ c kids   -> exprDoc cs c kids
+    PREF _ r child  -> prefDoc cs r child
+    TYTE _ r kids   -> tyteDoc cs r kids
+    JUXT _ kids     -> juxtDoc cs kids
+    OPEN _ r kids   -> openDoc cs r kids
+    HEIR _ kids     -> heirDoc cs kids
+    BLOC _ c r hd items -> blocDoc cs c r hd items
 
 -- | Render a Rex in a flat-only context. For NESTs and EXPRs, this renders
 -- only the flat form without offering a vertical alternative. This ensures
@@ -98,16 +99,16 @@ rexDoc cs = \case
 -- pdocNoFit which signals to PChoice that this branch doesn't fit.
 rexDocFlat :: ColorScheme -> Rex -> PDoc
 rexDocFlat cs = \case
-    LEAF sh s     -> leafDoc cs sh s
-    NEST c r kids -> nestDocFlat cs c r kids
-    EXPR c kids   -> exprDocFlat cs c kids
-    PREF r child  -> PCat (cRune cs r) (rexDocFlat cs child)
-    TYTE r kids   -> pdocIntersperseFun (\x y -> PCat x (PCat (cRune cs r) y)) (map (rexDocFlat cs) kids)
-    JUXT kids     -> foldr (PCat . rexDocFlat cs) PEmpty kids
+    LEAF _ sh s     -> leafDoc cs sh s
+    NEST _ c r kids -> nestDocFlat cs c r kids
+    EXPR _ c kids   -> exprDocFlat cs c kids
+    PREF _ r child  -> PCat (cRune cs r) (rexDocFlat cs child)
+    TYTE _ r kids   -> pdocIntersperseFun (\x y -> PCat x (PCat (cRune cs r) y)) (map (rexDocFlat cs) kids)
+    JUXT _ kids     -> foldr (PCat . rexDocFlat cs) PEmpty kids
     -- These are inherently vertical; mark as "no fit" to force vertical layout
-    OPEN r kids   -> pdocNoFit (openDoc cs r kids)
-    HEIR kids     -> pdocNoFit (heirDoc cs kids)
-    BLOC c r hd items -> pdocNoFit (blocDoc cs c r hd items)
+    OPEN _ r kids   -> pdocNoFit (openDoc cs r kids)
+    HEIR _ kids     -> pdocNoFit (heirDoc cs kids)
+    BLOC _ c r hd items -> pdocNoFit (blocDoc cs c r hd items)
 
 
 -- LEAF: Atomic tokens -------------------------------------------------------------
@@ -117,6 +118,7 @@ rexDocFlat cs = \case
 
 leafDoc :: ColorScheme -> LeafShape -> String -> PDoc
 leafDoc cs PAGE s = formatPageMulti cs (lines s)  -- PAGE always uses block form
+leafDoc cs TAPE s = formatTapeMulti cs (lines s)  -- TAPE always uses block form
 leafDoc cs shape s
     | '\n' `notElem` s = formatLeafSingle cs shape s
     | otherwise        = formatLeafMulti cs shape s
@@ -125,11 +127,12 @@ leafDoc cs shape s
 formatLeafSingle :: ColorScheme -> LeafShape -> String -> PDoc
 formatLeafSingle _  WORD s = pdocText s
 formatLeafSingle _  QUIP s = pdocText s  -- quips already have their quote
-formatLeafSingle cs TRAD s = PCat (cStringChar cs '"') (PCat (cString cs (escapeQuotes s)) (cStringChar cs '"'))
+formatLeafSingle cs CORD s = PCat (cStringChar cs '"') (PCat (cString cs (escapeQuotes s)) (cStringChar cs '"'))
+formatLeafSingle _  TAPE _ = error "TAPE should use formatTapeMulti"
 formatLeafSingle _  PAGE _ = error "PAGE should use formatPageMulti"
 formatLeafSingle cs SPAN s = PCat (cString cs "'''") (PCat (cString cs s) (cString cs "'''"))
 formatLeafSingle cs SLUG s = PCat (cString cs "' ") (cString cs s)
-formatLeafSingle _  BAD  s = pdocText s  -- print BAD tokens as-is
+formatLeafSingle _  (BAD _) s = pdocText s  -- print BAD tokens as-is
 
 -- | Escape quotes for TRAD strings: " becomes ""
 escapeQuotes :: String -> String
@@ -140,12 +143,13 @@ escapeQuotes (c:rest) = c : escapeQuotes rest
 -- | Format a multi-line leaf as a PDoc
 formatLeafMulti :: ColorScheme -> LeafShape -> String -> PDoc
 formatLeafMulti cs SLUG s = formatSlugMulti cs (lines s)
-formatLeafMulti cs TRAD s = formatTradMulti cs (lines s)
+formatLeafMulti cs CORD s = formatCordMulti cs (lines s)
+formatLeafMulti cs TAPE s = formatTapeMulti cs (lines s)
 formatLeafMulti cs PAGE s = formatPageMulti cs (lines s)
 formatLeafMulti cs SPAN s = formatSpanMulti cs (lines s)
 formatLeafMulti _  WORD s = pdocText s  -- shouldn't have newlines, but handle anyway
 formatLeafMulti _  QUIP s = pdocText s  -- shouldn't have newlines
-formatLeafMulti _  BAD  s = pdocText s  -- print BAD tokens as-is
+formatLeafMulti _  (BAD _) s = pdocText s  -- print BAD tokens as-is
 
 -- | Format multi-line SLUG: each line prefixed with "' "
 -- Uses PDent to capture the column for alignment
@@ -157,15 +161,33 @@ formatSlugMulti cs (l:ls) =
     slugRest [] = PEmpty
     slugRest (x:xs) = PCat PLine (PCat (cString cs ("' " ++ x)) (slugRest xs))
 
--- | Format multi-line TRAD: quoted, continuation lines indented
+-- | Format multi-line CORD: quoted, continuation lines indented (span-style)
 -- Uses PDent after the opening quote to align continuations
-formatTradMulti :: ColorScheme -> [String] -> PDoc
-formatTradMulti cs [] = cString cs "\"\""
-formatTradMulti cs (l:ls) =
-    PCat (cStringChar cs '"') (PDent (PCat (cString cs (escapeQuotes l)) (PCat (tradRest ls) (cStringChar cs '"'))))
+formatCordMulti :: ColorScheme -> [String] -> PDoc
+formatCordMulti cs [] = cString cs "\"\""
+formatCordMulti cs (l:ls) =
+    PCat (cStringChar cs '"') (PDent (PCat (cString cs (escapeQuotes l)) (PCat (cordRest ls) (cStringChar cs '"'))))
   where
-    tradRest [] = PEmpty
-    tradRest (x:xs) = PCat PLine (PCat (cString cs (escapeQuotes x)) (tradRest xs))
+    cordRest [] = PEmpty
+    cordRest (x:xs) = PCat PLine (PCat (cString cs (escapeQuotes x)) (cordRest xs))
+
+-- | Format multi-line TAPE: block form with " delimiters (page-style)
+-- Opening and closing " must be at the same column
+-- Blank lines are emitted without indentation
+formatTapeMulti :: ColorScheme -> [String] -> PDoc
+formatTapeMulti cs ls =
+    PDent (PCat (cStringChar cs '"') (PCat PLine (PCat (tapeContent ls) (PCat PLine (cStringChar cs '"')))))
+  where
+    tapeContent [] = PEmpty
+    tapeContent [x] = cString cs (escapeQuotes x)
+    tapeContent (x:xs) = PCat (cString cs (escapeQuotes x)) (PCat (tapeLine (head' xs)) (tapeContent xs))
+
+    -- Use raw newline for blank lines to avoid indentation
+    tapeLine "" = PText 1 "\n"
+    tapeLine _  = PLine
+
+    head' [] = ""
+    head' (h:_) = h
 
 -- | Format multi-line PAGE: block form with ''' delimiters
 -- Opening and closing ''' must be at the same column
@@ -337,9 +359,9 @@ openDoc cs r kids =
         hasInherentlyVerticalLast = case kids of
             [] -> False
             _  -> case last kids of
-                      HEIR _       -> True
-                      BLOC _ _ _ _ -> True
-                      _            -> False
+                      HEIR _ _       -> True
+                      BLOC _ _ _ _ _ -> True
+                      _              -> False
     in if hasInherentlyVerticalLast
        then vertical
        else PChoice flat vertical
@@ -374,8 +396,8 @@ heirDoc _  []     = PEmpty
 heirDoc cs [k]    = rexDoc cs k
 heirDoc cs (k:ks) =
     let firstRuneLen = case k of
-            OPEN r _ -> length r
-            _        -> 1
+            OPEN _ r _ -> length r
+            _          -> 1
     in PDent (PCat (rexDoc cs k) (heirRest cs firstRuneLen ks))
 
 -- | Render remaining heir elements with alignment based on first rune
@@ -383,8 +405,8 @@ heirRest :: ColorScheme -> Int -> [Rex] -> PDoc
 heirRest _  _            []     = PEmpty
 heirRest cs firstRuneLen (k:ks) =
     let currentRuneLen = case k of
-            OPEN r _ -> length r
-            _        -> 1
+            OPEN _ r _ -> length r
+            _          -> 1
         padding = max 0 (firstRuneLen - currentRuneLen)
         pad = if padding > 0 then pdocText (replicate padding ' ') else PEmpty
     in PCat PLine (PCat pad (PCat (rexDoc cs k) (heirRest cs firstRuneLen ks)))
@@ -421,16 +443,16 @@ blocItemsSep cs (k:ks) = PCat (rexDoc cs k) (PCat PLine (blocItemsSep cs ks))
 -- span multiple lines get wrapped in parens.
 rexDocTight :: ColorScheme -> Rex -> PDoc
 rexDocTight cs rex = case rex of
-    LEAF _ _      -> rexDoc cs rex
-    NEST _ _ _    -> rexDoc cs rex
-    EXPR _ _      -> rexDoc cs rex
-    PREF _ _      -> rexDoc cs rex
-    TYTE _ _      -> rexDoc cs rex
-    JUXT _        -> rexDoc cs rex
+    LEAF _ _ _      -> rexDoc cs rex
+    NEST _ _ _ _    -> rexDoc cs rex
+    EXPR _ _ _      -> rexDoc cs rex
+    PREF _ _ _      -> rexDoc cs rex
+    TYTE _ _ _      -> rexDoc cs rex
+    JUXT _ _        -> rexDoc cs rex
     -- These need parens when used in tight context
-    OPEN _ _      -> pdocParensC cs (rexDoc cs rex)
-    HEIR _        -> pdocParensC cs (rexDoc cs rex)
-    BLOC _ _ _ _  -> pdocParensC cs (rexDoc cs rex)
+    OPEN _ _ _      -> pdocParensC cs (rexDoc cs rex)
+    HEIR _ _        -> pdocParensC cs (rexDoc cs rex)
+    BLOC _ _ _ _ _  -> pdocParensC cs (rexDoc cs rex)
 
 -- | Wrap in colored parens
 pdocParensC :: ColorScheme -> PDoc -> PDoc
@@ -438,10 +460,10 @@ pdocParensC cs d = PCat (cBracket cs '(') (PCat d (cBracket cs ')'))
 
 -- | Check if a Rex is an "open" form (may expand vertically).
 isOpenRex :: Rex -> Bool
-isOpenRex (OPEN _ _)     = True
-isOpenRex (BLOC _ _ _ _) = True
-isOpenRex (HEIR _)       = True
-isOpenRex _              = False
+isOpenRex (OPEN _ _ _)     = True
+isOpenRex (BLOC _ _ _ _ _) = True
+isOpenRex (HEIR _ _)       = True
+isOpenRex _                = False
 
 bracketChars :: Color -> (Char, Char)
 bracketChars PAREN = ('(', ')')
@@ -460,6 +482,8 @@ prettyRexMain = do
     isTty <- hIsTerminalDevice stdout
     let colors = if isTty then BoldColors else NoColors
     src <- getContents
+    -- Force full input before parsing (avoid lazy IO issues with interactive input)
+    let !_ = length src
     let results = parseRex src
     mapM_ (\(slice, tree) ->
         case rexFromBlockTree slice tree of

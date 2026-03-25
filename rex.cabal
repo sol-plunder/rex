@@ -25,6 +25,7 @@ library
   exposed-modules:
       Rex.Lex
       Rex.Tree2
+      Rex.Error
       Rex.Rex
       Rex.Print
       Rex.PrintRex
@@ -53,6 +54,7 @@ executable rex
   other-modules:
       Rex.Lex
       Rex.Tree2
+      Rex.Error
       Rex.Rex
       Rex.Print
       Rex.PrintRex
@@ -80,6 +82,7 @@ test-suite rex-test
   other-modules:
       Rex.Lex
       Rex.Tree2
+      Rex.Error
       Rex.Rex
       Rex.Test
   ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
@@ -95,6 +98,7 @@ test-suite print-rex-test
   other-modules:
       Rex.Lex
       Rex.Tree2
+      Rex.Error
       Rex.Rex
       Rex.PDoc
       Rex.PrintRex

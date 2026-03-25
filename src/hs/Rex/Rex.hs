@@ -3,8 +3,10 @@
 
 module Rex.Rex
     ( Rex(..), LeafShape(..), Color(..), ppRex
+    , rexSpan, noSpan
     , rexFromTree, rexFromBlockTree
-    , rexMain
+    , rexMain, checkMain
+    , collectRexErrors
     )
 where
 
@@ -12,28 +14,45 @@ import qualified Rex.Tree2 as Tr
 
 import Rex.Lex    (Span (..))
 import Rex.Tree2  (Bracket (..), Leaf (..), Node (..), Shape (..), Tree (..), treePos)
+import Rex.Error  (BadReason(..), RexError(..))
 import Data.List  (nubBy, sortBy)
 
 
 -- Rex Data Model --------------------------------------------------------------
 
-data LeafShape = WORD | QUIP | TRAD | PAGE | SPAN | SLUG | BAD
+data LeafShape = WORD | QUIP | CORD | TAPE | PAGE | SPAN | SLUG | BAD BadReason
   deriving (Eq, Show)
 
 data Color = PAREN | BRACK | CURLY | CLEAR
   deriving (Eq, Show)
 
 data Rex
-    = LEAF LeafShape String
-    | NEST Color String [Rex]           -- (x + y), {a | b}
-    | EXPR Color [Rex]                  -- [f x], (x), ()
-    | PREF String Rex                   -- :x, -y
-    | TYTE String [Rex]                 -- x.y, a:b
-    | BLOC Color String Rex [Rex]       -- head rune:\n  a\n  b
-    | OPEN String [Rex]                 -- + x y (layout prefix)
-    | JUXT [Rex]                        -- f(x), f(x)[1]
-    | HEIR [Rex]                        -- + x\n+ y\nz
+    = LEAF Span LeafShape String
+    | NEST Span Color String [Rex]           -- (x + y), {a | b}
+    | EXPR Span Color [Rex]                  -- [f x], (x), ()
+    | PREF Span String Rex                   -- :x, -y
+    | TYTE Span String [Rex]                 -- x.y, a:b
+    | BLOC Span Color String Rex [Rex]       -- head rune:\n  a\n  b
+    | OPEN Span String [Rex]                 -- + x y (layout prefix)
+    | JUXT Span [Rex]                        -- f(x), f(x)[1]
+    | HEIR Span [Rex]                        -- + x\n+ y\nz
   deriving (Eq, Show)
+
+-- | Get the span of a Rex node
+rexSpan :: Rex -> Span
+rexSpan (LEAF sp _ _)     = sp
+rexSpan (NEST sp _ _ _)   = sp
+rexSpan (EXPR sp _ _)     = sp
+rexSpan (PREF sp _ _)     = sp
+rexSpan (TYTE sp _ _)     = sp
+rexSpan (BLOC sp _ _ _ _) = sp
+rexSpan (OPEN sp _ _)     = sp
+rexSpan (JUXT sp _)       = sp
+rexSpan (HEIR sp _)       = sp
+
+-- | Empty span (for synthetic nodes)
+noSpan :: Span
+noSpan = Span 0 0 0 0
 
 
 -- Rune Precedence -------------------------------------------------------------
@@ -58,43 +77,116 @@ runeCmp a b = compare (packRune a) (packRune b)
 
 -- Leaf Conversion -------------------------------------------------------------
 
-leafToRex :: Int -> Leaf -> Rex
-leafToRex col = \case
-    L_WORD s -> LEAF WORD s
-    L_TRAD s -> LEAF TRAD (stripTrad col s)
-    L_UGLY s -> stripUgly col s
-    L_SLUG s -> LEAF SLUG (stripSlug s)
-    L_BAD  s -> LEAF BAD s
+leafToRex :: Span -> Leaf -> Rex
+leafToRex sp = \case
+    L_WORD s -> LEAF sp WORD s
+    L_TRAD s -> stripTrad sp s
+    L_UGLY s -> stripUgly sp s
+    L_SLUG s -> LEAF sp SLUG (stripSlug s)
+    L_BAD  s -> classifyBadLeaf sp s
 
--- | Strip a TRAD string: remove quotes, strip leading whitespace from
--- continuation lines based on opening quote column.
-stripTrad :: Int -> String -> String
-stripTrad col s =
-    case s of
-        '"':rest -> case reverse rest of
-            '"':inner -> stripContinuations col (reverse inner)
-            _         -> stripContinuations col rest  -- unclosed, just strip open quote
-        _ -> s  -- no quotes, leave as is
+-- | Classify a BAD leaf from the lexer by examining its content
+classifyBadLeaf :: Span -> String -> Rex
+classifyBadLeaf sp s = LEAF sp (BAD reason) s
+  where
+    reason
+        | "\"" `isPrefixOf` s && not ("\"" `isSuffixOf` s) = UnclosedTrad
+        | "''" `isPrefixOf` s && not ("''" `isSuffixOf` s) = UnclosedUgly
+        | otherwise = InvalidChar
+
+    isPrefixOf [] _          = True
+    isPrefixOf _  []         = False
+    isPrefixOf (x:xs) (y:ys) = x == y && isPrefixOf xs ys
+
+    isSuffixOf xs ys = isPrefixOf (reverse xs) (reverse ys)
+
+-- | Process a TRAD string: classify as TAPE (page-style) or CORD (span-style).
+-- TAPE: starts with newline after opening quote, strip depth from closing quote indent
+-- CORD: inline content, continuation lines must indent to content column
+stripTrad :: Span -> String -> Rex
+stripTrad sp s =
+    let col = spanCol sp
+    in case s of
+        '"':afterOpen -> case afterOpen of
+            '\n':rest -> stripTape sp s col rest
+            _         -> stripCord sp s col afterOpen
+        _ -> LEAF sp CORD s  -- no quotes, leave as is (shouldn't happen)
+  where
+    -- TAPE: strip depth comes from terminator line's indentation
+    stripTape :: Span -> String -> Int -> String -> Rex
+    stripTape sp' orig _openCol content =
+        let contentLines = lines content
+        in case reverse contentLines of
+            [] -> LEAF sp' TAPE ""
+            (lastLine:revRest) ->
+                let (spaces, afterSpaces) = span (== ' ') lastLine
+                    stripDepth = length spaces
+                    bodyLines = reverse revRest
+                in if afterSpaces == "\"" && all (validPageLine stripDepth) bodyLines
+                   then let stripped = map (stripLineForPage stripDepth) bodyLines
+                        in LEAF sp' TAPE (unlines' stripped)
+                   else LEAF sp' (BAD InvalidPage) orig
+
+    -- Check if a line is valid for PAGE: blank lines are always valid,
+    -- non-blank lines must have at least `depth` leading spaces
+    validPageLine :: Int -> String -> Bool
+    validPageLine depth line
+        | all (== ' ') line = True
+        | otherwise         = all (== ' ') (take depth line) && length line >= depth
+
+    -- CORD: strip depth is content column (after opening quote)
+    -- Continuation lines must be indented at least to the content column
+    stripCord :: Span -> String -> Int -> String -> Rex
+    stripCord sp' orig openCol content =
+        let body = removeClosingQuote content
+            contentCol = openCol  -- column where content starts (right after ")
+        in case lines body of
+            []     -> LEAF sp' CORD ""
+            [single] -> LEAF sp' CORD (unescapeQuotes single)
+            (_:rest) ->
+                if all (validSpanLine contentCol) rest
+                then LEAF sp' CORD (stripContinuations contentCol body)
+                else LEAF sp' (BAD InvalidSpan) orig
+
+    -- Check if a continuation line is valid for SPAN
+    validSpanLine :: Int -> String -> Bool
+    validSpanLine depth line =
+        length (takeWhile (== ' ') line) >= depth
+
+    removeClosingQuote str =
+        case reverse str of
+            '"':inner -> reverse inner
+            _         -> str  -- unclosed, return as-is
+
+    -- Strip a line for PAGE: blank lines pass through, others get stripped
+    stripLineForPage :: Int -> String -> String
+    stripLineForPage depth line
+        | all (== ' ') line = ""
+        | otherwise         = stripN depth line
+
+    unlines' [] = ""
+    unlines' xs = init (unlines xs)
 
 -- | Process an UGLY string: classify as PAGE or SPAN, then strip accordingly.
 -- PAGE: starts with newline after ticks, strip depth determined by terminator indent
 -- SPAN: inline content, strip continuation lines based on content column
-stripUgly :: Int -> String -> Rex
-stripUgly col s =
-    let (ticks, afterOpen) = span (== '\'') s
+stripUgly :: Span -> String -> Rex
+stripUgly sp s =
+    let col = spanCol sp
+        (ticks, afterOpen) = span (== '\'') s
         n = length ticks
     in if n >= 2
        then case afterOpen of
                 '\n':rest -> stripPage n rest
-                _         -> LEAF SPAN (stripSpan col n afterOpen)
-       else LEAF SPAN s  -- shouldn't happen, but fallback
+                _         -> stripSpan col n afterOpen
+       else LEAF sp SPAN s  -- shouldn't happen, but fallback
   where
     -- PAGE: strip depth comes from terminator line's indentation
     stripPage :: Int -> String -> Rex
     stripPage n content =
         let contentLines = lines content
         in case reverse contentLines of
-            [] -> LEAF PAGE ""
+            [] -> LEAF sp PAGE ""
             (lastLine:revRest) ->
                 let closeTicks = replicate n '\''
                     (spaces, afterSpaces) = span (== ' ') lastLine
@@ -102,8 +194,8 @@ stripUgly col s =
                     bodyLines = reverse revRest
                 in if afterSpaces == closeTicks && all (validPageLine stripDepth) bodyLines
                    then let stripped = map (stripLineForPage stripDepth) bodyLines
-                        in LEAF PAGE (unlines' stripped)
-                   else LEAF BAD s
+                        in LEAF sp PAGE (unlines' stripped)
+                   else LEAF sp (BAD InvalidPage) s
 
     -- Check if a line is valid for PAGE: blank lines are always valid,
     -- non-blank lines must have at least `depth` leading spaces
@@ -113,12 +205,25 @@ stripUgly col s =
         | otherwise         = all (== ' ') (take depth line) && length line >= depth
 
     -- SPAN: strip depth is content column (after ticks)
-    stripSpan :: Int -> Int -> String -> String
+    -- Continuation lines must be indented at least to the content column
+    stripSpan :: Int -> Int -> String -> Rex
     stripSpan openCol n content =
         let closeTicks = replicate n '\''
             body = removeClosing closeTicks content
             contentCol = openCol + n - 1  -- column where content starts
-        in stripContinuations contentCol body
+        in case lines body of
+            []     -> LEAF sp SPAN ""
+            [single] -> LEAF sp SPAN (unescapeQuotes single)
+            (first:rest) ->
+                if all (validSpanLine contentCol) rest
+                then LEAF sp SPAN (stripContinuations contentCol body)
+                else LEAF sp (BAD InvalidSpan) s
+
+    -- Check if a continuation line is valid for SPAN:
+    -- Must have at least `depth` leading spaces (or be the closing ticks)
+    validSpanLine :: Int -> String -> Bool
+    validSpanLine depth line =
+        length (takeWhile (== ' ') line) >= depth
 
     removeClosing ticks str =
         let revTicks = reverse ticks
@@ -181,11 +286,11 @@ stripN _ s = s  -- non-space or end of string
 -- and producing a LEAF QUIP.
 
 quipToRex :: String -> Int -> Tree -> Rex
-quipToRex src blockOff tree@(Tree S_QUIP _ _) =
+quipToRex src blockOff tree@(Tree S_QUIP sp _) =
     let qoff = Tr.treeOff tree
         qlen = Tr.treeLen tree
         s = take qlen (drop (qoff - blockOff) src)
-    in LEAF QUIP s
+    in LEAF sp QUIP s
 quipToRex _ _ t = error $ "quipToRex: not a quip: " ++ show (treeShape t)
 
 
@@ -196,42 +301,42 @@ quipToRex _ _ t = error $ "quipToRex: not a quip: " ++ show (treeShape t)
 -- offset where it starts in the original source.
 
 convertWith :: String -> Int -> Tree -> Rex
-convertWith src blockOff tree@(Tree shape _ nodes) = case shape of
-    S_NEST bk -> convertNest src blockOff bk nodes
-    S_CLUMP   -> convertClump src blockOff nodes
-    S_POEM    -> convertPoem src blockOff (treePos tree) nodes
-    S_ITEM    -> convertSpaced src blockOff CLEAR nodes
+convertWith src blockOff tree@(Tree shape sp nodes) = case shape of
+    S_NEST bk -> convertNest src blockOff sp bk nodes
+    S_CLUMP   -> convertClump src blockOff sp nodes
+    S_POEM    -> convertPoem src blockOff sp (treePos tree) nodes
+    S_ITEM    -> convertSpaced src blockOff sp CLEAR nodes
     S_QUIP    -> quipToRex src blockOff tree
     S_BLOCK   -> error "S_BLOCK: should be consumed by enclosing context"
 
 
 -- Spaced Node Lists -----------------------------------------------------------
 
-convertSpaced :: String -> Int -> Color -> [Node] -> Rex
-convertSpaced src blockOff color nodes = case extractBlock nodes of
+convertSpaced :: String -> Int -> Span -> Color -> [Node] -> Rex
+convertSpaced src blockOff sp color nodes = case extractBlock nodes of
     Just (headNodes, rune, blockChildren) ->
         let hd    = spacedHead src blockOff headNodes
             items = map (convertWith src blockOff) blockChildren
-        in BLOC color rune hd items
+        in BLOC sp color rune hd items
     Nothing ->
-        spacedGroup src blockOff color nodes
+        spacedGroup src blockOff sp color nodes
 
 spacedHead :: String -> Int -> [Node] -> Rex
-spacedHead _   _        []  = EXPR CLEAR []
+spacedHead _   _        []  = EXPR noSpan CLEAR []
 spacedHead src blockOff [n] = convertNode src blockOff n
-spacedHead src blockOff ns  = spacedGroup src blockOff CLEAR ns
+spacedHead src blockOff ns  = spacedGroup src blockOff noSpan CLEAR ns
 
-spacedGroup :: String -> Int -> Color -> [Node] -> Rex
-spacedGroup src blockOff color nodes =
+spacedGroup :: String -> Int -> Span -> Color -> [Node] -> Rex
+spacedGroup src blockOff sp color nodes =
     let elems = mergeBlocks src blockOff (map (nodeToElem src blockOff) nodes)
         runes = nubBy (==) $ sortBy runeCmp [r | E_RUNE r <- elems]
     in case runes of
          [] -> case [r | E_REX r <- elems] of
-                 []  -> EXPR color []
-                 [r] -> applyColor color r
-                 rs  -> EXPR color rs
-         _  -> let rex = infixRecur runes elems
-               in applyColor color rex
+                 []  -> EXPR sp color []
+                 [r] -> applyColor sp color r
+                 rs  -> EXPR sp color rs
+         _  -> let rex = infixRecur sp runes elems
+               in applyColor sp color rex
 
 -- | Merge E_BLOCK elements with their preceding rune and head.
 -- Pattern: [E_REX head, E_RUNE rune, E_BLOCK items] -> [E_REX (BLOC CLEAR rune head items)]
@@ -240,21 +345,21 @@ mergeBlocks src blockOff = go []
   where
     go acc [] = reverse acc
     go acc (E_REX hd : E_RUNE r : E_BLOCK _ items : rest) =
-        let bloc = BLOC CLEAR r hd (map (convertWith src blockOff) items)
+        let bloc = BLOC noSpan CLEAR r hd (map (convertWith src blockOff) items)
         in go (E_REX bloc : acc) rest
     go acc (E_RUNE r : E_BLOCK _ items : rest) =
         -- Block with no head - just use empty EXPR as head
-        let bloc = BLOC CLEAR r (EXPR CLEAR []) (map (convertWith src blockOff) items)
+        let bloc = BLOC noSpan CLEAR r (EXPR noSpan CLEAR []) (map (convertWith src blockOff) items)
         in go (E_REX bloc : acc) rest
     go acc (e : rest) = go (e : acc) rest
 
-applyColor :: Color -> Rex -> Rex
-applyColor CLEAR rex = rex
-applyColor color rex = case rex of
-    NEST CLEAR r kids     -> NEST color r kids
-    EXPR CLEAR kids       -> EXPR color kids
-    BLOC CLEAR r hd items -> BLOC color r hd items
-    _                     -> EXPR color [rex]
+applyColor :: Span -> Color -> Rex -> Rex
+applyColor _  CLEAR rex = rex
+applyColor sp color rex = case rex of
+    NEST _ CLEAR r kids     -> NEST sp color r kids
+    EXPR _ CLEAR kids       -> EXPR sp color kids
+    BLOC _ CLEAR r hd items -> BLOC sp color r hd items
+    _                       -> EXPR sp color [rex]
 
 
 -- Block Extraction ------------------------------------------------------------
@@ -270,13 +375,13 @@ extractBlock nodes =
 
 -- Nest Conversion -------------------------------------------------------------
 
-convertNest :: String -> Int -> Bracket -> [Node] -> Rex
-convertNest src blockOff bk nodes =
+convertNest :: String -> Int -> Span -> Bracket -> [Node] -> Rex
+convertNest src blockOff sp bk nodes =
     let color = toColor bk
     in case nodes of
-         []  -> EXPR color []
-         [n] -> applyColor color (convertNode src blockOff n)
-         _   -> convertSpaced src blockOff color nodes
+         []  -> EXPR sp color []
+         [n] -> applyColor sp color (convertNode src blockOff n)
+         _   -> convertSpaced src blockOff sp color nodes
 
 toColor :: Bracket -> Color
 toColor Paren = PAREN
@@ -287,13 +392,13 @@ toColor Clear = CLEAR
 
 -- Clump Conversion ------------------------------------------------------------
 
-convertClump :: String -> Int -> [Node] -> Rex
-convertClump _   _        []    = error "empty clump"
-convertClump src blockOff nodes = top (nodeToElem src blockOff <$> nodes)
+convertClump :: String -> Int -> Span -> [Node] -> Rex
+convertClump _   _        _  []    = error "empty clump"
+convertClump src blockOff sp nodes = top (nodeToElem src blockOff <$> nodes)
   where
     top :: [Elem] -> Rex
     top [E_REX r] = r
-    top (E_RUNE r : rest) = PREF r (top rest)
+    top (E_RUNE r : rest) = PREF sp r (top rest)
     top es = case juxt [] es of [E_REX r] -> r
                                 collapsed -> tight collapsed
 
@@ -302,17 +407,17 @@ convertClump src blockOff nodes = top (nodeToElem src blockOff <$> nodes)
         case nubBy (==) $ sortBy runeCmp [r | E_RUNE r <- elems] of
              [] -> case [r | E_REX r <- elems] of
                      [r] -> r
-                     rs  -> EXPR CLEAR rs
+                     rs  -> EXPR sp CLEAR rs
              rs -> go rs elems
 
     go :: [String] -> [Elem] -> Rex
     go _      [E_REX r] = r
     go []     elems     = case [r | E_REX r <- elems] of
                               [r] -> r
-                              rs  -> EXPR CLEAR rs
+                              rs  -> EXPR sp CLEAR rs
     go (r:rs) elems     = case go rs <$> splitOnRune r elems of
                               [k]  -> k
-                              kids -> TYTE r kids
+                              kids -> TYTE sp r kids
 
     juxt :: [Rex] -> [Elem] -> [Elem]
     juxt acc []                    = flush acc []
@@ -323,20 +428,20 @@ convertClump src blockOff nodes = top (nodeToElem src blockOff <$> nodes)
     flush :: [Rex] -> [Elem] -> [Elem]
     flush []  rest = rest
     flush [r] rest = E_REX r : rest
-    flush rs  rest = E_REX (JUXT rs) : rest
+    flush rs  rest = E_REX (JUXT sp rs) : rest
 
 
 -- Poem Conversion -------------------------------------------------------------
 
-convertPoem :: String -> Int -> Int -> [Node] -> Rex
-convertPoem _   _        _   [] = error "empty poem"
-convertPoem src blockOff pos (N_RUNE _ r : rest) =
+convertPoem :: String -> Int -> Span -> Int -> [Node] -> Rex
+convertPoem _   _        _  _   [] = error "empty poem"
+convertPoem src blockOff sp pos (N_RUNE _ r : rest) =
     let (children, heirNodes) = splitHeir pos rest
-        open = OPEN r (map (convertNode src blockOff) children)
+        open = OPEN sp r (map (convertNode src blockOff) children)
     in case heirNodes of
          [] -> open
-         _  -> mkHeir (open : concatMap (flattenHeir . convertNode src blockOff) heirNodes)
-convertPoem _ _ _ _ = error "poem must start with a rune"
+         _  -> mkHeir sp (open : concatMap (flattenHeir . convertNode src blockOff) heirNodes)
+convertPoem _ _ _ _ _ = error "poem must start with a rune"
 
 splitHeir :: Int -> [Node] -> ([Node], [Node])
 splitHeir pos = go []
@@ -346,19 +451,19 @@ splitHeir pos = go []
       | Tr.nodeCol n <= pos = (reverse acc, rest)
       | otherwise           = go (n : acc) (tail rest)
 
-mkHeir :: [Rex] -> Rex
-mkHeir [r] = r
-mkHeir rs  = HEIR rs
+mkHeir :: Span -> [Rex] -> Rex
+mkHeir _  [r] = r
+mkHeir sp rs  = HEIR sp rs
 
 flattenHeir :: Rex -> [Rex]
-flattenHeir (HEIR rs) = rs
-flattenHeir r         = [r]
+flattenHeir (HEIR _ rs) = rs
+flattenHeir r           = [r]
 
 
 -- Node Conversion -------------------------------------------------------------
 
 convertNode :: String -> Int -> Node -> Rex
-convertNode _   _        (N_LEAF sp lf) = leafToRex (spanCol sp) lf
+convertNode _   _        (N_LEAF sp lf) = leafToRex sp lf
 convertNode src blockOff (N_CHILD tree) = convertWith src blockOff tree
 convertNode _   _        (N_RUNE _ r)   = error $ "convertNode: bare rune: " ++ r
 
@@ -369,7 +474,7 @@ data Elem = E_RUNE String | E_REX Rex | E_BLOCK String [Tree]
 
 nodeToElem :: String -> Int -> Node -> Elem
 nodeToElem _   _        (N_RUNE _ r)   = E_RUNE r
-nodeToElem _   _        (N_LEAF sp lf) = E_REX (leafToRex (spanCol sp) lf)
+nodeToElem _   _        (N_LEAF sp lf) = E_REX (leafToRex sp lf)
 nodeToElem src blockOff (N_CHILD tree) = case tree of
     Tree S_BLOCK _ blockNodes ->
         -- Extract the rune that precedes this block by looking at context
@@ -380,19 +485,19 @@ nodeToElem src blockOff (N_CHILD tree) = case tree of
 
 -- Infix Precedence Grouping ---------------------------------------------------
 
-infixRecur :: [String] -> [Elem] -> Rex
+infixRecur :: Span -> [String] -> [Elem] -> Rex
 
-infixRecur _ [E_REX r] = r
+infixRecur _ _ [E_REX r] = r
 
-infixRecur [] elems =
+infixRecur sp [] elems =
     case [r | E_REX r <- elems] of
         [r] -> r
-        rs  -> EXPR CLEAR rs
+        rs  -> EXPR sp CLEAR rs
 
-infixRecur (rune:runes) elems =
+infixRecur sp (rune:runes) elems =
     case splitOnRune rune elems of
-        [g] -> infixRecur runes g
-        gs  -> NEST CLEAR rune $ infixRecur runes <$> filter (not . null) gs
+        [g] -> infixRecur sp runes g
+        gs  -> NEST sp CLEAR rune $ infixRecur sp runes <$> filter (not . null) gs
 
 
 splitOnRune :: String -> [Elem] -> [[Elem]]
@@ -411,7 +516,7 @@ rexFromTree = convertWith "" 0
 rexFromBlockTree :: String -> Tree -> Maybe Rex
 rexFromBlockTree src tree = case tree of
     Tree (S_NEST Clear) _ [] -> Nothing
-    Tree (S_NEST Clear) _ ns -> Just $ convertSpaced src (Tr.treeOff tree) CLEAR ns
+    Tree (S_NEST Clear) sp ns -> Just $ convertSpaced src (Tr.treeOff tree) sp CLEAR ns
     _ -> error "top level tree is always Clear"
 
 
@@ -421,43 +526,63 @@ ppRex :: Rex -> String
 ppRex = go 0
   where
     ind n = replicate n ' '
+    ppSpan (Span l c o n) = show l ++ ":" ++ show c ++ " [" ++ show o ++ "+" ++ show n ++ "]"
 
     go i = \case
-        LEAF sh s ->
-            ind i ++ show sh ++ " " ++ show s ++ "\n"
+        LEAF sp sh s ->
+            ind i ++ show sh ++ " " ++ ppSpan sp ++ " " ++ show s ++ "\n"
 
-        NEST c r kids ->
-            ind i ++ "NEST " ++ show c ++ " " ++ show r ++ "\n"
+        NEST sp c r kids ->
+            ind i ++ "NEST " ++ show c ++ " " ++ show r ++ " " ++ ppSpan sp ++ "\n"
             ++ concatMap (go (i+2)) kids
 
-        EXPR c kids ->
-            ind i ++ "EXPR " ++ show c ++ "\n"
+        EXPR sp c kids ->
+            ind i ++ "EXPR " ++ show c ++ " " ++ ppSpan sp ++ "\n"
             ++ concatMap (go (i+2)) kids
 
-        PREF r child ->
-            ind i ++ "PREF " ++ show r ++ "\n"
+        PREF sp r child ->
+            ind i ++ "PREF " ++ show r ++ " " ++ ppSpan sp ++ "\n"
             ++ go (i+2) child
 
-        TYTE r kids ->
-            ind i ++ "TYTE " ++ show r ++ "\n"
+        TYTE sp r kids ->
+            ind i ++ "TYTE " ++ show r ++ " " ++ ppSpan sp ++ "\n"
             ++ concatMap (go (i+2)) kids
 
-        JUXT kids ->
-            ind i ++ "JUXT\n"
+        JUXT sp kids ->
+            ind i ++ "JUXT " ++ ppSpan sp ++ "\n"
             ++ concatMap (go (i+2)) kids
 
-        HEIR kids ->
-            ind i ++ "HEIR\n"
+        HEIR sp kids ->
+            ind i ++ "HEIR " ++ ppSpan sp ++ "\n"
             ++ concatMap (go (i+2)) kids
 
-        BLOC c r hd items ->
-            ind i ++ "BLOC " ++ show c ++ " " ++ show r ++ "\n"
+        BLOC sp c r hd items ->
+            ind i ++ "BLOC " ++ show c ++ " " ++ show r ++ " " ++ ppSpan sp ++ "\n"
             ++ go (i+2) hd
             ++ concatMap (go (i+2)) items
 
-        OPEN r kids ->
-            ind i ++ "OPEN " ++ show r ++ "\n"
+        OPEN sp r kids ->
+            ind i ++ "OPEN " ++ show r ++ " " ++ ppSpan sp ++ "\n"
             ++ concatMap (go (i+2)) kids
+
+
+-- Error Collection -------------------------------------------------------------
+
+-- | Collect all errors from a Rex tree
+collectRexErrors :: Rex -> [RexError]
+collectRexErrors = go
+  where
+    go = \case
+        LEAF sp (BAD reason) s -> [RexError sp reason s]
+        LEAF _ _ _             -> []
+        NEST _ _ _ kids        -> concatMap go kids
+        EXPR _ _ kids          -> concatMap go kids
+        PREF _ _ child         -> go child
+        TYTE _ _ kids          -> concatMap go kids
+        JUXT _ kids            -> concatMap go kids
+        HEIR _ kids            -> concatMap go kids
+        BLOC _ _ _ hd items    -> go hd ++ concatMap go items
+        OPEN _ _ kids          -> concatMap go kids
 
 
 --- Main -----------------------------------------------------------------------
@@ -471,3 +596,41 @@ rexMain = do
       Nothing -> pure ()
       Just r  -> putStrLn (ppRex r)
     ) results
+
+checkMain :: IO ()
+checkMain = do
+    src <- getContents
+    let results = Tr.parseRex src
+        allErrors = concatMap (\(slice, tree) ->
+            case rexFromBlockTree slice tree of
+                Nothing -> []
+                Just r  -> collectRexErrors r
+            ) results
+    if null allErrors
+       then putStrLn "No errors found."
+       else mapM_ (putStrLn . formatError (Just src)) allErrors
+  where
+    formatError mSrc (RexError sp reason txt) =
+        let loc = show (spanLin sp) ++ ":" ++ show (spanCol sp)
+            msg = reasonMessage reason
+            preview = case mSrc of
+                Nothing  -> show txt
+                Just s -> showContext s sp
+        in loc ++ ": error: " ++ msg ++ "\n" ++ preview
+
+    reasonMessage InvalidChar       = "invalid character"
+    reasonMessage UnclosedTrad      = "unclosed string literal"
+    reasonMessage UnclosedUgly      = "unclosed multi-line string"
+    reasonMessage MismatchedBracket = "mismatched bracket"
+    reasonMessage InvalidPage       = "invalid page string indentation"
+    reasonMessage InvalidSpan       = "invalid span string indentation"
+
+    showContext src sp =
+        let srcLines = lines src
+            lineNum = spanLin sp
+            colNum = spanCol sp
+        in if lineNum > 0 && lineNum <= length srcLines
+           then let line = srcLines !! (lineNum - 1)
+                    pointer = replicate (colNum - 1) ' ' ++ "^"
+                in "  " ++ line ++ "\n  " ++ pointer
+           else ""
