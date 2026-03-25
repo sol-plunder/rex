@@ -31,8 +31,6 @@ library
       Rex.PrintRexTest
       Rex.PDoc
   other-modules:
-      Lib
-      LowLib
   hs-source-dirs:   src/hs
   ghc-options:      -Wall -Wcompat
   build-depends:
@@ -56,8 +54,6 @@ executable rex
       Rex.Rex
       Rex.PrintRex
       Rex.PrintRexTest
-      Lib
-      LowLib
       Rex.PDoc
   ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
   build-depends:
@@ -83,8 +79,6 @@ test-suite print-rex-test
       Rex.PDoc
       Rex.PrintRex
       Rex.PrintRexTest
-      Lib
-      LowLib
   ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base             >= 4.7 && < 5
