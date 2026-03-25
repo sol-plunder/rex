@@ -29,7 +29,6 @@ library
       Rex.Rex
       Rex.PrintRex
       Rex.PrintRexTest
-      Rex.Test
       Rex.PDoc
   other-modules:
       Lib
@@ -57,7 +56,6 @@ executable rex
       Rex.Rex
       Rex.PrintRex
       Rex.PrintRexTest
-      Rex.Test
       Lib
       LowLib
       Rex.PDoc
@@ -70,22 +68,6 @@ executable rex
     , filepath
     , optics
     , pretty-show
-  default-language: Haskell2010
-
-
-test-suite rex-test
-  type:           exitcode-stdio-1.0
-  main-is:        RexTestMain.hs
-  hs-source-dirs: src/hs
-  other-modules:
-      Rex.Lex
-      Rex.Tree2
-      Rex.Error
-      Rex.Rex
-      Rex.Test
-  ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      base  >= 4.7 && < 5
   default-language: Haskell2010
 
 

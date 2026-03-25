@@ -33,6 +33,7 @@ import System.FilePath ((</>), takeExtension)
 data Test = Test
     { testName     :: String
     , testWidth    :: Int
+    , testDebug    :: Bool     -- whether to use debug mode
     , testInput    :: String
     , testExpected :: String  -- same as input for round-trip tests
     }
@@ -53,14 +54,14 @@ parseTests ls lineNum
             let newLineNum = lineNum + length (takeWhile isBlankOrComment ls)
             in case parseHeader headerLine of
                 Nothing -> Left $ "Line " ++ show newLineNum
-                               ++ ": expected '=== name | width', got: "
+                               ++ ": expected '=== name | width' or '=== name | width | debug', got: "
                                ++ headerLine
-                Just (name, width) ->
+                Just (name, width, debug) ->
                     let (codeLines, remaining) = break isHeaderLine rest
                         -- Strip trailing blank/comment lines from code
                         codeLines' = dropWhileEnd isBlankOrComment codeLines
                         (input, expected) = splitInputExpected codeLines'
-                        test = Test name width input expected
+                        test = Test name width debug input expected
                         nextLine = newLineNum + 1 + length codeLines
                     in case parseTests remaining nextLine of
                         Left err -> Left err
@@ -78,17 +79,38 @@ splitInputExpected ls =
             let expectedLines' = dropWhileEnd isBlankOrComment expectedLines
             in (unlines' inputLines, unlines' expectedLines')
 
-parseHeader :: String -> Maybe (String, Int)
+-- | Parse header: "=== name | width" or "=== name | width | debug"
+parseHeader :: String -> Maybe (String, Int, Bool)
 parseHeader s = case stripPrefix "=== " s of
     Nothing -> Nothing
     Just rest -> case break (== '|') rest of
         (_, []) -> Nothing
-        (namePart, '|':widthPart) ->
-            case reads (dropWhile isSpace widthPart) of
-                [(w, trailing)] | all isSpace trailing ->
-                    Just (trimEnd namePart, w)
+        (namePart, '|':afterName) ->
+            -- Split on '|' to get width and optional "debug"
+            let parts = splitOn '|' afterName
+            in case parts of
+                [widthStr] ->
+                    case reads (trim widthStr) of
+                        [(w, "")] -> Just (trimEnd namePart, w, False)
+                        _         -> Nothing
+                [widthStr, flagStr] ->
+                    case reads (trim widthStr) of
+                        [(w, "")] | trim flagStr == "debug" ->
+                            Just (trimEnd namePart, w, True)
+                        _         -> Nothing
                 _ -> Nothing
         _ -> Nothing
+
+-- | Split a string on a delimiter
+splitOn :: Char -> String -> [String]
+splitOn _   "" = [""]
+splitOn del s  = case break (== del) s of
+    (part, [])    -> [part]
+    (part, _:rst) -> part : splitOn del rst
+
+-- | Trim leading and trailing whitespace
+trim :: String -> String
+trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 isHeaderLine :: String -> Bool
 isHeaderLine s = "=== " `isPrefixOf` s
@@ -108,7 +130,7 @@ unlines' xs = init (unlines xs)
 -- Test Runner -----------------------------------------------------------------
 
 run :: Test -> (Bool, String)
-run (Test name width input expected) =
+run (Test name width debug input expected) =
     case parseRex input of
         [] -> (False, unlines
             [ "  FAIL " ++ name
@@ -123,7 +145,8 @@ run (Test name width input expected) =
                     , "    rexFromBlockTree returned Nothing"
                     ])
                 Just rexes ->
-                    let actuals = map (printRex width) rexes
+                    let cfg     = if debug then debugConfig else defaultConfig
+                        actuals = map (printRexWith cfg width) rexes
                         actual  = joinBlankLines actuals
                         ok      = actual == expected
                     in if ok
@@ -131,6 +154,7 @@ run (Test name width input expected) =
                        else (False, unlines
                                [ "  FAIL " ++ name
                                , "    width:    " ++ show width
+                               , "    debug:    " ++ show debug
                                , "    input:    " ++ show input
                                , "    expected: " ++ show expected
                                , "    actual:   " ++ show actual

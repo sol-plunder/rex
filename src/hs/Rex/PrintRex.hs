@@ -14,9 +14,13 @@
 module Rex.PrintRex
     ( printRex
     , printRexColor
+    , printRexWith
     , rexDoc
     , prettyRexMain
     , ColorScheme(..)
+    , PrintConfig(..)
+    , defaultConfig
+    , debugConfig
     ) where
 
 import Rex.Rex
@@ -25,18 +29,36 @@ import Rex.Tree2 (parseRex)
 import System.IO (hIsTerminalDevice, stdout)
 
 
--- Color Scheme ----------------------------------------------------------------
+-- Configuration ----------------------------------------------------------------
 
 data ColorScheme = NoColors | BoldColors
   deriving (Eq, Show)
 
+data PrintConfig = PrintConfig
+    { cfgColors :: ColorScheme
+    , cfgDebug  :: Bool
+    }
+  deriving (Eq, Show)
+
+-- | Default config: no colors, no debug
+defaultConfig :: PrintConfig
+defaultConfig = PrintConfig NoColors False
+
+-- | Debug config: no colors, debug enabled
+debugConfig :: PrintConfig
+debugConfig = PrintConfig NoColors True
+
 -- | Render a Rex to a String, fitting within the given page width.
 printRex :: Int -> Rex -> String
-printRex width = render width . rexDoc NoColors
+printRex width = render width . rexDoc defaultConfig
 
 -- | Render a Rex with colors.
 printRexColor :: ColorScheme -> Int -> Rex -> String
-printRexColor colors width = render width . rexDoc colors
+printRexColor colors width = render width . rexDoc (PrintConfig colors False)
+
+-- | Render a Rex with full config.
+printRexWith :: PrintConfig -> Int -> Rex -> String
+printRexWith cfg width = render width . rexDoc cfg
 
 
 -- ANSI Color Helpers ----------------------------------------------------------
@@ -49,11 +71,12 @@ colorText BoldColors code s = PText (length s) (esc code ++ s ++ esc "0")
   where esc c = "\x1b[" ++ c ++ "m"
 
 -- | Color a rune (yellow, bold for light runes)
-cRune :: ColorScheme -> String -> PDoc
-cRune NoColors   r = pdocText r
-cRune BoldColors r
-    | isLightRune r = colorText BoldColors "33;1" r  -- bold yellow
-    | otherwise     = colorText BoldColors "33" r    -- yellow
+cRune :: PrintConfig -> String -> PDoc
+cRune cfg r = case cfgColors cfg of
+    NoColors   -> pdocText r
+    BoldColors
+        | isLightRune r -> colorText BoldColors "33;1" r  -- bold yellow
+        | otherwise     -> colorText BoldColors "33" r    -- yellow
   where
     isLightRune "-" = True
     isLightRune "`" = True
@@ -61,34 +84,37 @@ cRune BoldColors r
     isLightRune _   = False
 
 -- | Color a bracket (bold magenta)
-cBracket :: ColorScheme -> Char -> PDoc
-cBracket NoColors   c = PChar c
-cBracket BoldColors c = PText 1 ("\x1b[35;1m" ++ [c] ++ "\x1b[0m")
+cBracket :: PrintConfig -> Char -> PDoc
+cBracket cfg c = case cfgColors cfg of
+    NoColors   -> PChar c
+    BoldColors -> PText 1 ("\x1b[35;1m" ++ [c] ++ "\x1b[0m")
 
 -- | Color string content (green)
-cString :: ColorScheme -> String -> PDoc
-cString NoColors   s = pdocText s
-cString BoldColors s = colorText BoldColors "32" s
+cString :: PrintConfig -> String -> PDoc
+cString cfg s = case cfgColors cfg of
+    NoColors   -> pdocText s
+    BoldColors -> colorText BoldColors "32" s
 
 -- | Color a single string char (green)
-cStringChar :: ColorScheme -> Char -> PDoc
-cStringChar NoColors   c = PChar c
-cStringChar BoldColors c = PText 1 ("\x1b[32m" ++ [c] ++ "\x1b[0m")
+cStringChar :: PrintConfig -> Char -> PDoc
+cStringChar cfg c = case cfgColors cfg of
+    NoColors   -> PChar c
+    BoldColors -> PText 1 ("\x1b[32m" ++ [c] ++ "\x1b[0m")
 
 
 -- Top-level Rex Dispatch -------------------------------------------------------
 
-rexDoc :: ColorScheme -> Rex -> PDoc
-rexDoc cs = \case
-    LEAF _ sh s     -> leafDoc cs sh s
-    NEST _ c r kids -> nestDoc cs c r kids
-    EXPR _ c kids   -> exprDoc cs c kids
-    PREF _ r child  -> prefDoc cs r child
-    TYTE _ r kids   -> tyteDoc cs r kids
-    JUXT _ kids     -> juxtDoc cs kids
-    OPEN _ r kids   -> openDoc cs r kids
-    HEIR _ kids     -> heirDoc cs kids
-    BLOC _ c r hd items -> blocDoc cs c r hd items
+rexDoc :: PrintConfig -> Rex -> PDoc
+rexDoc cfg = \case
+    LEAF _ sh s     -> leafDoc cfg sh s
+    NEST _ c r kids -> nestDoc cfg c r kids
+    EXPR _ c kids   -> exprDoc cfg c kids
+    PREF _ r child  -> prefDoc cfg r child
+    TYTE _ r kids   -> tyteDoc cfg r kids
+    JUXT _ kids     -> juxtDoc cfg kids
+    OPEN _ r kids   -> openDoc cfg r kids
+    HEIR _ kids     -> heirDoc cfg kids
+    BLOC _ c r hd items -> blocDoc cfg c r hd items
 
 -- | Render a Rex in a flat-only context. For NESTs and EXPRs, this renders
 -- only the flat form without offering a vertical alternative. This ensures
@@ -97,42 +123,57 @@ rexDoc cs = \case
 --
 -- For inherently vertical constructs (OPEN, HEIR, BLOC), we wrap them in
 -- pdocNoFit which signals to PChoice that this branch doesn't fit.
-rexDocFlat :: ColorScheme -> Rex -> PDoc
-rexDocFlat cs = \case
-    LEAF _ sh s     -> leafDoc cs sh s
-    NEST _ c r kids -> nestDocFlat cs c r kids
-    EXPR _ c kids   -> exprDocFlat cs c kids
-    PREF _ r child  -> PCat (cRune cs r) (rexDocFlat cs child)
-    TYTE _ r kids   -> pdocIntersperseFun (\x y -> PCat x (PCat (cRune cs r) y)) (map (rexDocFlat cs) kids)
-    JUXT _ kids     -> foldr (PCat . rexDocFlat cs) PEmpty kids
+rexDocFlat :: PrintConfig -> Rex -> PDoc
+rexDocFlat cfg = \case
+    LEAF _ sh s     -> leafDoc cfg sh s
+    NEST _ c r kids -> nestDocFlat cfg c r kids
+    EXPR _ c kids   -> exprDocFlat cfg c kids
+    PREF _ r child  -> if cfgDebug cfg
+                        then PCat (pdocText "‹") (PCat (cRune cfg r) (PCat (rexDocFlat cfg child) (pdocText "›")))
+                        else PCat (cRune cfg r) (rexDocFlat cfg child)
+    TYTE _ r kids   -> pdocIntersperseFun (\x y -> PCat x (PCat (cRune cfg r) y)) (map (rexDocFlat cfg) kids)
+    JUXT _ kids     -> foldr (PCat . rexDocFlat cfg) PEmpty kids
     -- These are inherently vertical; mark as "no fit" to force vertical layout
-    OPEN _ r kids   -> pdocNoFit (openDoc cs r kids)
-    HEIR _ kids     -> pdocNoFit (heirDoc cs kids)
-    BLOC _ c r hd items -> pdocNoFit (blocDoc cs c r hd items)
+    OPEN _ r kids   -> pdocNoFit (openDoc cfg r kids)
+    HEIR _ kids     -> pdocNoFit (heirDoc cfg kids)
+    BLOC _ c r hd items -> pdocNoFit (blocDoc cfg c r hd items)
 
 
 -- LEAF: Atomic tokens -------------------------------------------------------------
 --
 -- Single-line leaves are printed directly. Multi-line leaves need special
 -- handling to re-add appropriate prefixes/indentation.
+--
+-- In debug mode, all string types (CORD, TAPE, SPAN, PAGE) are rendered as
+-- slugs to make the extracted content completely unambiguous.
 
-leafDoc :: ColorScheme -> LeafShape -> String -> PDoc
-leafDoc cs PAGE s = formatPageMulti cs (lines s)  -- PAGE always uses block form
-leafDoc cs TAPE s = formatTapeMulti cs (lines s)  -- TAPE always uses block form
-leafDoc cs shape s
-    | '\n' `notElem` s = formatLeafSingle cs shape s
-    | otherwise        = formatLeafMulti cs shape s
+leafDoc :: PrintConfig -> LeafShape -> String -> PDoc
+leafDoc cfg shape s
+    -- In debug mode, all strings become slugs
+    | cfgDebug cfg = case shape of
+        WORD    -> pdocText s
+        QUIP    -> pdocText s  -- quips keep their format
+        SLUG    -> formatSlugMulti cfg (lines s)
+        BAD _   -> pdocText s
+        -- CORD, TAPE, SPAN, PAGE all become slugs in debug mode
+        _       -> formatSlugMulti cfg (lines s)
+    -- Normal mode
+    | otherwise = case shape of
+        PAGE -> formatPageMulti cfg (lines s)  -- PAGE always uses block form
+        TAPE -> formatTapeMulti cfg (lines s)  -- TAPE always uses block form
+        _    | '\n' `notElem` s -> formatLeafSingle cfg shape s
+             | otherwise        -> formatLeafMulti cfg shape s
 
 -- | Format a single-line leaf with appropriate quoting
-formatLeafSingle :: ColorScheme -> LeafShape -> String -> PDoc
-formatLeafSingle _  WORD s = pdocText s
-formatLeafSingle _  QUIP s = pdocText s  -- quips already have their quote
-formatLeafSingle cs CORD s = PCat (cStringChar cs '"') (PCat (cString cs (escapeQuotes s)) (cStringChar cs '"'))
-formatLeafSingle _  TAPE _ = error "TAPE should use formatTapeMulti"
-formatLeafSingle _  PAGE _ = error "PAGE should use formatPageMulti"
-formatLeafSingle cs SPAN s = PCat (cString cs "'''") (PCat (cString cs s) (cString cs "'''"))
-formatLeafSingle cs SLUG s = PCat (cString cs "' ") (cString cs s)
-formatLeafSingle _  (BAD _) s = pdocText s  -- print BAD tokens as-is
+formatLeafSingle :: PrintConfig -> LeafShape -> String -> PDoc
+formatLeafSingle _   WORD s = pdocText s
+formatLeafSingle _   QUIP s = pdocText s  -- quips already have their quote
+formatLeafSingle cfg CORD s = PCat (cStringChar cfg '"') (PCat (cString cfg (escapeQuotes s)) (cStringChar cfg '"'))
+formatLeafSingle _   TAPE _ = error "TAPE should use formatTapeMulti"
+formatLeafSingle _   PAGE _ = error "PAGE should use formatPageMulti"
+formatLeafSingle cfg SPAN s = PCat (cString cfg "'''") (PCat (cString cfg s) (cString cfg "'''"))
+formatLeafSingle cfg SLUG s = PCat (cString cfg "' ") (cString cfg s)
+formatLeafSingle _   (BAD _) s = pdocText s  -- print BAD tokens as-is
 
 -- | Escape quotes for TRAD strings: " becomes ""
 escapeQuotes :: String -> String
@@ -141,46 +182,46 @@ escapeQuotes ('"':rest) = '"' : '"' : escapeQuotes rest
 escapeQuotes (c:rest) = c : escapeQuotes rest
 
 -- | Format a multi-line leaf as a PDoc
-formatLeafMulti :: ColorScheme -> LeafShape -> String -> PDoc
-formatLeafMulti cs SLUG s = formatSlugMulti cs (lines s)
-formatLeafMulti cs CORD s = formatCordMulti cs (lines s)
-formatLeafMulti cs TAPE s = formatTapeMulti cs (lines s)
-formatLeafMulti cs PAGE s = formatPageMulti cs (lines s)
-formatLeafMulti cs SPAN s = formatSpanMulti cs (lines s)
-formatLeafMulti _  WORD s = pdocText s  -- shouldn't have newlines, but handle anyway
-formatLeafMulti _  QUIP s = pdocText s  -- shouldn't have newlines
-formatLeafMulti _  (BAD _) s = pdocText s  -- print BAD tokens as-is
+formatLeafMulti :: PrintConfig -> LeafShape -> String -> PDoc
+formatLeafMulti cfg SLUG s = formatSlugMulti cfg (lines s)
+formatLeafMulti cfg CORD s = formatCordMulti cfg (lines s)
+formatLeafMulti cfg TAPE s = formatTapeMulti cfg (lines s)
+formatLeafMulti cfg PAGE s = formatPageMulti cfg (lines s)
+formatLeafMulti cfg SPAN s = formatSpanMulti cfg (lines s)
+formatLeafMulti _   WORD s = pdocText s  -- shouldn't have newlines, but handle anyway
+formatLeafMulti _   QUIP s = pdocText s  -- shouldn't have newlines
+formatLeafMulti _   (BAD _) s = pdocText s  -- print BAD tokens as-is
 
 -- | Format multi-line SLUG: each line prefixed with "' "
 -- Uses PDent to capture the column for alignment
-formatSlugMulti :: ColorScheme -> [String] -> PDoc
-formatSlugMulti _  [] = PEmpty
-formatSlugMulti cs (l:ls) =
-    PDent (PCat (cString cs ("' " ++ l)) (slugRest ls))
+formatSlugMulti :: PrintConfig -> [String] -> PDoc
+formatSlugMulti _   [] = PEmpty
+formatSlugMulti cfg (l:ls) =
+    PDent (PCat (cString cfg ("' " ++ l)) (slugRest ls))
   where
     slugRest [] = PEmpty
-    slugRest (x:xs) = PCat PLine (PCat (cString cs ("' " ++ x)) (slugRest xs))
+    slugRest (x:xs) = PCat PLine (PCat (cString cfg ("' " ++ x)) (slugRest xs))
 
 -- | Format multi-line CORD: quoted, continuation lines indented (span-style)
 -- Uses PDent after the opening quote to align continuations
-formatCordMulti :: ColorScheme -> [String] -> PDoc
-formatCordMulti cs [] = cString cs "\"\""
-formatCordMulti cs (l:ls) =
-    PCat (cStringChar cs '"') (PDent (PCat (cString cs (escapeQuotes l)) (PCat (cordRest ls) (cStringChar cs '"'))))
+formatCordMulti :: PrintConfig -> [String] -> PDoc
+formatCordMulti cfg [] = cString cfg "\"\""
+formatCordMulti cfg (l:ls) =
+    PCat (cStringChar cfg '"') (PDent (PCat (cString cfg (escapeQuotes l)) (PCat (cordRest ls) (cStringChar cfg '"'))))
   where
     cordRest [] = PEmpty
-    cordRest (x:xs) = PCat PLine (PCat (cString cs (escapeQuotes x)) (cordRest xs))
+    cordRest (x:xs) = PCat PLine (PCat (cString cfg (escapeQuotes x)) (cordRest xs))
 
 -- | Format multi-line TAPE: block form with " delimiters (page-style)
 -- Opening and closing " must be at the same column
 -- Blank lines are emitted without indentation
-formatTapeMulti :: ColorScheme -> [String] -> PDoc
-formatTapeMulti cs ls =
-    PDent (PCat (cStringChar cs '"') (PCat PLine (PCat (tapeContent ls) (PCat PLine (cStringChar cs '"')))))
+formatTapeMulti :: PrintConfig -> [String] -> PDoc
+formatTapeMulti cfg ls =
+    PDent (PCat (cStringChar cfg '"') (PCat PLine (PCat (tapeContent ls) (PCat PLine (cStringChar cfg '"')))))
   where
     tapeContent [] = PEmpty
-    tapeContent [x] = cString cs (escapeQuotes x)
-    tapeContent (x:xs) = PCat (cString cs (escapeQuotes x)) (PCat (tapeLine (head' xs)) (tapeContent xs))
+    tapeContent [x] = cString cfg (escapeQuotes x)
+    tapeContent (x:xs) = PCat (cString cfg (escapeQuotes x)) (PCat (tapeLine (head' xs)) (tapeContent xs))
 
     -- Use raw newline for blank lines to avoid indentation
     tapeLine "" = PText 1 "\n"
@@ -192,13 +233,13 @@ formatTapeMulti cs ls =
 -- | Format multi-line PAGE: block form with ''' delimiters
 -- Opening and closing ''' must be at the same column
 -- Blank lines are emitted without indentation
-formatPageMulti :: ColorScheme -> [String] -> PDoc
-formatPageMulti cs ls =
-    PDent (PCat (cString cs "'''") (PCat PLine (PCat (pageContent ls) (PCat PLine (cString cs "'''")))))
+formatPageMulti :: PrintConfig -> [String] -> PDoc
+formatPageMulti cfg ls =
+    PDent (PCat (cString cfg "'''") (PCat PLine (PCat (pageContent ls) (PCat PLine (cString cfg "'''")))))
   where
     pageContent [] = PEmpty
-    pageContent [x] = cString cs x
-    pageContent (x:xs) = PCat (cString cs x) (PCat (pageLine (head' xs)) (pageContent xs))
+    pageContent [x] = cString cfg x
+    pageContent (x:xs) = PCat (cString cfg x) (PCat (pageLine (head' xs)) (pageContent xs))
 
     -- Use raw newline for blank lines to avoid indentation
     pageLine "" = PText 1 "\n"
@@ -211,13 +252,13 @@ formatPageMulti cs ls =
 -- PDent is set after ''' so continuation lines align to the content column.
 -- This matches the lexer requirement that continuations be indented past the
 -- opening ''' position.
-formatSpanMulti :: ColorScheme -> [String] -> PDoc
-formatSpanMulti cs [] = cString cs "''''''"
-formatSpanMulti cs (l:ls) =
-    PCat (cString cs "'''") (PDent (PCat (cString cs l) (PCat (spanRest ls) (cString cs "'''"))))
+formatSpanMulti :: PrintConfig -> [String] -> PDoc
+formatSpanMulti cfg [] = cString cfg "''''''"
+formatSpanMulti cfg (l:ls) =
+    PCat (cString cfg "'''") (PDent (PCat (cString cfg l) (PCat (spanRest ls) (cString cfg "'''"))))
   where
     spanRest [] = PEmpty
-    spanRest (x:xs) = PCat PLine (PCat (cString cs x) (spanRest xs))
+    spanRest (x:xs) = PCat PLine (PCat (cString cfg x) (spanRest xs))
 
 
 -- NEST: Infix bracket forms like (a + b), {a | b} --------------------------------
@@ -235,55 +276,57 @@ formatSpanMulti cs (l:ls) =
 -- the opening bracket. This is the preferred vertical layout for bracketed
 -- forms.
 
-nestDoc :: ColorScheme -> Color -> String -> [Rex] -> PDoc
-nestDoc cs c r kids =
+nestDoc :: PrintConfig -> Color -> String -> [Rex] -> PDoc
+nestDoc cfg c r kids =
     let (open, close) = bracketChars c
     in case c of
-        CLEAR -> PDent (nestContentClear cs r kids)  -- CLEAR uses flat separators with normal rexDoc
+        CLEAR | cfgDebug cfg -> PCat (pdocText "«") (PCat (PDent (nestContentClear cfg r kids)) (pdocText "»"))
+              | otherwise    -> PDent (nestContentClear cfg r kids)
         _     -> case kids of
-            []  -> PCat (cBracket cs open) (cBracket cs close)
+            []  -> PCat (cBracket cfg open) (cBracket cfg close)
             [k] -> -- Single element with trailing rune: (x +)
-                   let flat = PCat (cBracket cs open) (PCat (rexDocFlat cs k) (PCat pdocSpace (PCat (cRune cs r) (cBracket cs close))))
-                       vert = PDent (PCat (cBracket cs open) (PCat (PChar ' ') (PCat (rexDoc cs k) (PCat pdocSpace (PCat (cRune cs r) (PCat PLine (cBracket cs close)))))))
+                   let flat = PCat (cBracket cfg open) (PCat (rexDocFlat cfg k) (PCat pdocSpace (PCat (cRune cfg r) (cBracket cfg close))))
+                       vert = PDent (PCat (cBracket cfg open) (PCat (PChar ' ') (PCat (rexDoc cfg k) (PCat pdocSpace (PCat (cRune cfg r) (PCat PLine (cBracket cfg close)))))))
                    in PChoice flat vert
             _   -> -- Multiple elements
-                   let flat = PCat (cBracket cs open) (PCat (nestContentFlat cs r kids) (cBracket cs close))
-                       vert = PDent (PCat (cBracket cs open) (PCat (PChar ' ') (PCat (nestContentOutlined cs r kids) (PCat PLine (cBracket cs close)))))
+                   let flat = PCat (cBracket cfg open) (PCat (nestContentFlat cfg r kids) (cBracket cfg close))
+                       vert = PDent (PCat (cBracket cfg open) (PCat (PChar ' ') (PCat (nestContentOutlined cfg r kids) (PCat PLine (cBracket cfg close)))))
                    in PChoice flat vert
 
 -- | Flat-only version of nestDoc (no PChoice, just flat form)
-nestDocFlat :: ColorScheme -> Color -> String -> [Rex] -> PDoc
-nestDocFlat cs c r kids =
+nestDocFlat :: PrintConfig -> Color -> String -> [Rex] -> PDoc
+nestDocFlat cfg c r kids =
     let (open, close) = bracketChars c
     in case c of
-        CLEAR -> nestContentFlat cs r kids
+        CLEAR | cfgDebug cfg -> PCat (pdocText "«") (PCat (nestContentFlat cfg r kids) (pdocText "»"))
+              | otherwise    -> nestContentFlat cfg r kids
         _     -> case kids of
-            []  -> PCat (cBracket cs open) (cBracket cs close)
-            [k] -> PCat (cBracket cs open) (PCat (rexDocFlat cs k) (PCat pdocSpace (PCat (cRune cs r) (cBracket cs close))))
-            _   -> PCat (cBracket cs open) (PCat (nestContentFlat cs r kids) (cBracket cs close))
+            []  -> PCat (cBracket cfg open) (cBracket cfg close)
+            [k] -> PCat (cBracket cfg open) (PCat (rexDocFlat cfg k) (PCat pdocSpace (PCat (cRune cfg r) (cBracket cfg close))))
+            _   -> PCat (cBracket cfg open) (PCat (nestContentFlat cfg r kids) (cBracket cfg close))
 
 -- | Content for CLEAR nests: separators but no brackets, uses rexDoc
-nestContentClear :: ColorScheme -> String -> [Rex] -> PDoc
-nestContentClear _  _ []     = PEmpty
-nestContentClear cs _ [k]    = rexDoc cs k
-nestContentClear cs r (k:ks) = PCat (rexDoc cs k) (PCat (PCat pdocSpace (PCat (cRune cs r) pdocSpace)) (nestContentClear cs r ks))
+nestContentClear :: PrintConfig -> String -> [Rex] -> PDoc
+nestContentClear _   _ []     = PEmpty
+nestContentClear cfg _ [k]    = rexDoc cfg k
+nestContentClear cfg r (k:ks) = PCat (rexDoc cfg k) (PCat (PCat pdocSpace (PCat (cRune cfg r) pdocSpace)) (nestContentClear cfg r ks))
 
 -- | Flat layout: children separated by " rune " (uses rexDocFlat for children)
-nestContentFlat :: ColorScheme -> String -> [Rex] -> PDoc
-nestContentFlat _  _ []     = PEmpty
-nestContentFlat cs _ [k]    = rexDocFlat cs k
-nestContentFlat cs r (k:ks) = PCat (rexDocFlat cs k) (PCat (PCat pdocSpace (PCat (cRune cs r) pdocSpace)) (nestContentFlat cs r ks))
+nestContentFlat :: PrintConfig -> String -> [Rex] -> PDoc
+nestContentFlat _   _ []     = PEmpty
+nestContentFlat cfg _ [k]    = rexDocFlat cfg k
+nestContentFlat cfg r (k:ks) = PCat (rexDocFlat cfg k) (PCat (PCat pdocSpace (PCat (cRune cfg r) pdocSpace)) (nestContentFlat cfg r ks))
 
 -- | Outlined vertical layout: first child inline, rest on new lines with rune prefix
-nestContentOutlined :: ColorScheme -> String -> [Rex] -> PDoc
-nestContentOutlined _  _ []     = PEmpty
-nestContentOutlined cs _ [k]    = rexDoc cs k
-nestContentOutlined cs r (k:ks) = PCat (rexDoc cs k) (nestRestOutlined cs r ks)
+nestContentOutlined :: PrintConfig -> String -> [Rex] -> PDoc
+nestContentOutlined _   _ []     = PEmpty
+nestContentOutlined cfg _ [k]    = rexDoc cfg k
+nestContentOutlined cfg r (k:ks) = PCat (rexDoc cfg k) (nestRestOutlined cfg r ks)
 
 -- | Rest of outlined layout: each child on new line prefixed with rune
-nestRestOutlined :: ColorScheme -> String -> [Rex] -> PDoc
-nestRestOutlined _  _ []     = PEmpty
-nestRestOutlined cs r (k:ks) = PCat PLine (PCat (cRune cs r) (PCat (PChar ' ') (PCat (rexDoc cs k) (nestRestOutlined cs r ks))))
+nestRestOutlined :: PrintConfig -> String -> [Rex] -> PDoc
+nestRestOutlined _   _ []     = PEmpty
+nestRestOutlined cfg r (k:ks) = PCat PLine (PCat (cRune cfg r) (PCat (PChar ' ') (PCat (rexDoc cfg k) (nestRestOutlined cfg r ks))))
 
 
 -- EXPR: Application forms like (f x), [a, b], {} --------------------------------
@@ -291,41 +334,46 @@ nestRestOutlined cs r (k:ks) = PCat PLine (PCat (cRune cs r) (PCat (PChar ' ') (
 -- Children are space-separated and enclosed in brackets.
 -- Uses PChoice to try flat vs vertical layout.
 
-exprDoc :: ColorScheme -> Color -> [Rex] -> PDoc
-exprDoc cs c kids =
+exprDoc :: PrintConfig -> Color -> [Rex] -> PDoc
+exprDoc cfg c kids =
     let (open, close) = bracketChars c
         content = case kids of
             [] -> PEmpty
-            _  -> PDent (pdocIntersperseFun pdocSpaceOrLine (map (rexDoc cs) kids))
+            _  -> PDent (pdocIntersperseFun pdocSpaceOrLine (map (rexDoc cfg) kids))
     in case c of
-        CLEAR -> content
-        _     -> PCat (cBracket cs open) (PCat content (cBracket cs close))
+        CLEAR | cfgDebug cfg -> PCat (pdocText "«") (PCat content (pdocText "»"))
+              | otherwise    -> content
+        _     -> PCat (cBracket cfg open) (PCat content (cBracket cfg close))
 
 -- | Flat-only version of exprDoc (uses rexDocFlat for children)
-exprDocFlat :: ColorScheme -> Color -> [Rex] -> PDoc
-exprDocFlat cs c kids =
+exprDocFlat :: PrintConfig -> Color -> [Rex] -> PDoc
+exprDocFlat cfg c kids =
     let (open, close) = bracketChars c
-        content = pdocIntersperse pdocSpace (map (rexDocFlat cs) kids)
+        content = pdocIntersperse pdocSpace (map (rexDocFlat cfg) kids)
     in case c of
-        CLEAR -> content
-        _     -> PCat (cBracket cs open) (PCat content (cBracket cs close))
+        CLEAR | cfgDebug cfg -> PCat (pdocText "«") (PCat content (pdocText "»"))
+              | otherwise    -> content
+        _     -> PCat (cBracket cfg open) (PCat content (cBracket cfg close))
 
 
 -- PREF: Tight prefix like -x, :y ------------------------------------------------
 --
 -- Rune concatenated directly with child (no space).
+-- In debug mode, wrap with ‹› markers.
 
-prefDoc :: ColorScheme -> String -> Rex -> PDoc
-prefDoc cs r child = PCat (cRune cs r) (rexDocTight cs child)
+prefDoc :: PrintConfig -> String -> Rex -> PDoc
+prefDoc cfg r child
+    | cfgDebug cfg = PCat (pdocText "‹") (PCat (cRune cfg r) (PCat (rexDocTight cfg child) (pdocText "›")))
+    | otherwise    = PCat (cRune cfg r) (rexDocTight cfg child)
 
 
 -- TYTE: Tight infix like x.y, a:b:c ---------------------------------------------
 --
 -- Children concatenated with rune separator (no spaces).
 
-tyteDoc :: ColorScheme -> String -> [Rex] -> PDoc
-tyteDoc cs r kids =
-    pdocIntersperseFun (\x y -> PCat x (PCat (cRune cs r) y)) (map (rexDocTight cs) kids)
+tyteDoc :: PrintConfig -> String -> [Rex] -> PDoc
+tyteDoc cfg r kids =
+    pdocIntersperseFun (\x y -> PCat x (PCat (cRune cfg r) y)) (map (rexDocTight cfg) kids)
 
 
 -- JUXT: Tight juxtaposition like f(x), f(x)[1] ----------------------------------
@@ -333,8 +381,8 @@ tyteDoc cs r kids =
 -- Children concatenated directly (no spaces). Complex children get wrapped
 -- in parens.
 
-juxtDoc :: ColorScheme -> [Rex] -> PDoc
-juxtDoc cs = foldr (PCat . rexDocTight cs) PEmpty
+juxtDoc :: PrintConfig -> [Rex] -> PDoc
+juxtDoc cfg = foldr (PCat . rexDocTight cfg) PEmpty
 
 
 -- OPEN: Rune poems like + a b c -------------------------------------------------
@@ -350,11 +398,11 @@ juxtDoc cs = foldr (PCat . rexDocTight cs) PEmpty
 --
 -- Sibling open children use backstep for the staircase pattern.
 
-openDoc :: ColorScheme -> String -> [Rex] -> PDoc
-openDoc cs r kids =
-    let runeD = cRune cs r
-        flat = PCat runeD (PCat pdocSpace (openChildrenFlat cs kids))
-        vertical = PCat runeD (PCat pdocSpace (PDent (openChildrenVertical cs kids)))
+openDoc :: PrintConfig -> String -> [Rex] -> PDoc
+openDoc cfg r kids =
+    let runeD = cRune cfg r
+        flat = PCat runeD (PCat pdocSpace (openChildrenFlat cfg kids))
+        vertical = PCat runeD (PCat pdocSpace (PDent (openChildrenVertical cfg kids)))
         -- If last child is inherently vertical (HEIR or BLOC), force vertical layout
         hasInherentlyVerticalLast = case kids of
             [] -> False
@@ -362,27 +410,30 @@ openDoc cs r kids =
                       HEIR _ _       -> True
                       BLOC _ _ _ _ _ -> True
                       _              -> False
-    in if hasInherentlyVerticalLast
-       then vertical
-       else PChoice flat vertical
+        inner = if hasInherentlyVerticalLast
+                then vertical
+                else PChoice flat vertical
+    in if cfgDebug cfg
+       then PCat (pdocText "⟨") (PCat inner (pdocText "⟩"))
+       else inner
 
-openChildrenFlat :: ColorScheme -> [Rex] -> PDoc
-openChildrenFlat cs = pdocIntersperse pdocSpace . map (rexDoc cs)
+openChildrenFlat :: PrintConfig -> [Rex] -> PDoc
+openChildrenFlat cfg = pdocIntersperse pdocSpace . map (rexDoc cfg)
 
-openChildrenVertical :: ColorScheme -> [Rex] -> PDoc
-openChildrenVertical _  []     = PEmpty
-openChildrenVertical cs [k]    = rexDoc cs k
-openChildrenVertical cs (k:ks)
-    | isOpenRex k = pdocBackstep (rexDoc cs k) (openRestAfterOpen cs ks)
-    | otherwise   = PCat (rexDoc cs k) (PCat PLine (openChildrenVertical cs ks))
+openChildrenVertical :: PrintConfig -> [Rex] -> PDoc
+openChildrenVertical _   []     = PEmpty
+openChildrenVertical cfg [k]    = rexDoc cfg k
+openChildrenVertical cfg (k:ks)
+    | isOpenRex k = pdocBackstep (rexDoc cfg k) (openRestAfterOpen cfg ks)
+    | otherwise   = PCat (rexDoc cfg k) (PCat PLine (openChildrenVertical cfg ks))
 
 -- After an open sibling, every following child needs PLine before it.
-openRestAfterOpen :: ColorScheme -> [Rex] -> PDoc
-openRestAfterOpen _  []     = PEmpty
-openRestAfterOpen cs [k]    = PCat PLine (rexDoc cs k)
-openRestAfterOpen cs (k:ks)
-    | isOpenRex k = pdocBackstep (rexDoc cs k) (openRestAfterOpen cs ks)
-    | otherwise   = PCat PLine (PCat (rexDoc cs k) (openRestAfterOpen cs ks))
+openRestAfterOpen :: PrintConfig -> [Rex] -> PDoc
+openRestAfterOpen _   []     = PEmpty
+openRestAfterOpen cfg [k]    = PCat PLine (rexDoc cfg k)
+openRestAfterOpen cfg (k:ks)
+    | isOpenRex k = pdocBackstep (rexDoc cfg k) (openRestAfterOpen cfg ks)
+    | otherwise   = PCat PLine (PCat (rexDoc cfg k) (openRestAfterOpen cfg ks))
 
 
 -- HEIR: Vertical siblings at same column ----------------------------------------
@@ -391,72 +442,79 @@ openRestAfterOpen cs (k:ks)
 -- E.g., ":= x/y" followed by "| if ..." has "|" aligned with "=" (column 2).
 -- But ":| a" followed by ":| b" has both starting at column 1.
 
-heirDoc :: ColorScheme -> [Rex] -> PDoc
-heirDoc _  []     = PEmpty
-heirDoc cs [k]    = rexDoc cs k
-heirDoc cs (k:ks) =
+heirDoc :: PrintConfig -> [Rex] -> PDoc
+heirDoc _   []     = PEmpty
+heirDoc cfg [k]    = rexDoc cfg k
+heirDoc cfg (k:ks) =
     let firstRuneLen = case k of
             OPEN _ r _ -> length r
             _          -> 1
-    in PDent (PCat (rexDoc cs k) (heirRest cs firstRuneLen ks))
+        inner = PDent (PCat (rexDoc cfg k) (heirRest cfg firstRuneLen ks))
+    in if cfgDebug cfg
+       then PCat (pdocText "⟨") (PCat inner (pdocText "⟩"))
+       else inner
 
 -- | Render remaining heir elements with alignment based on first rune
-heirRest :: ColorScheme -> Int -> [Rex] -> PDoc
-heirRest _  _            []     = PEmpty
-heirRest cs firstRuneLen (k:ks) =
+heirRest :: PrintConfig -> Int -> [Rex] -> PDoc
+heirRest _   _            []     = PEmpty
+heirRest cfg firstRuneLen (k:ks) =
     let currentRuneLen = case k of
             OPEN _ r _ -> length r
             _          -> 1
         padding = max 0 (firstRuneLen - currentRuneLen)
         pad = if padding > 0 then pdocText (replicate padding ' ') else PEmpty
-    in PCat PLine (PCat pad (PCat (rexDoc cs k) (heirRest cs firstRuneLen ks)))
+    in PCat PLine (PCat pad (PCat (rexDoc cfg k) (heirRest cfg firstRuneLen ks)))
 
 
 -- BLOC: Block forms like f =\n  a\n  b ------------------------------------------
 --
 -- Head + rune stays on one line, then items on subsequent lines indented.
 
-blocDoc :: ColorScheme -> Color -> String -> Rex -> [Rex] -> PDoc
-blocDoc cs c r hd items =
+blocDoc :: PrintConfig -> Color -> String -> Rex -> [Rex] -> PDoc
+blocDoc cfg c r hd items =
     let (open, close) = bracketChars c
-        headD = rexDoc cs hd
-        runeD = cRune cs r
-        itemsD = blocItems cs items
-        inner = PCat headD (PCat pdocSpace (PCat runeD itemsD))
+        headD = rexDoc cfg hd
+        runeD = cRune cfg r
+        itemsD = blocItems cfg items
+        -- In debug mode, wrap head+rune in ⟦⟧ markers
+        headRune = if cfgDebug cfg
+                   then PCat (pdocText "⟦") (PCat headD (PCat pdocSpace (PCat runeD (pdocText "⟧"))))
+                   else PCat headD (PCat pdocSpace runeD)
+        inner = PCat headRune itemsD
     in case c of
         CLEAR -> inner
-        _     -> PCat (cBracket cs open) (PCat inner (cBracket cs close))
+        _     -> PCat (cBracket cfg open) (PCat inner (cBracket cfg close))
 
-blocItems :: ColorScheme -> [Rex] -> PDoc
-blocItems _  []    = PEmpty
-blocItems cs items = PCat PLine (PCat (pdocText "    ") (PDent (blocItemsSep cs items)))
+blocItems :: PrintConfig -> [Rex] -> PDoc
+blocItems _   []    = PEmpty
+blocItems cfg items = PCat PLine (PCat (pdocText "    ") (PDent (blocItemsSep cfg items)))
 
-blocItemsSep :: ColorScheme -> [Rex] -> PDoc
-blocItemsSep _  []     = PEmpty
-blocItemsSep cs [k]    = rexDoc cs k
-blocItemsSep cs (k:ks) = PCat (rexDoc cs k) (PCat PLine (blocItemsSep cs ks))
+blocItemsSep :: PrintConfig -> [Rex] -> PDoc
+blocItemsSep _   []     = PEmpty
+blocItemsSep cfg [k]    = rexDoc cfg k
+blocItemsSep cfg (k:ks) = PCat (rexDoc cfg k) (PCat PLine (blocItemsSep cfg ks))
 
 
 -- Helpers -----------------------------------------------------------------------
 
 -- | Render a Rex in a tight context. Complex expressions that would normally
 -- span multiple lines get wrapped in parens.
-rexDocTight :: ColorScheme -> Rex -> PDoc
-rexDocTight cs rex = case rex of
-    LEAF _ _ _      -> rexDoc cs rex
-    NEST _ _ _ _    -> rexDoc cs rex
-    EXPR _ _ _      -> rexDoc cs rex
-    PREF _ _ _      -> rexDoc cs rex
-    TYTE _ _ _      -> rexDoc cs rex
-    JUXT _ _        -> rexDoc cs rex
+rexDocTight :: PrintConfig -> Rex -> PDoc
+rexDocTight cfg rex = case rex of
+    LEAF _ _ _      -> rexDoc cfg rex
+    NEST _ _ _ _    -> rexDoc cfg rex
+    EXPR _ _ _      -> rexDoc cfg rex
+    PREF _ _ _      -> rexDoc cfg rex
+    TYTE _ _ _      -> rexDoc cfg rex
+    JUXT _ _        -> rexDoc cfg rex
     -- These need parens when used in tight context
-    OPEN _ _ _      -> pdocParensC cs (rexDoc cs rex)
-    HEIR _ _        -> pdocParensC cs (rexDoc cs rex)
-    BLOC _ _ _ _ _  -> pdocParensC cs (rexDoc cs rex)
+    OPEN _ _ _      -> pdocParensC cfg (rexDoc cfg rex)
+    HEIR _ _        -> pdocParensC cfg (rexDoc cfg rex)
+    BLOC _ _ _ _ _  -> pdocParensC cfg (rexDoc cfg rex)
 
 -- | Wrap in colored parens
-pdocParensC :: ColorScheme -> PDoc -> PDoc
-pdocParensC cs d = PCat (cBracket cs '(') (PCat d (cBracket cs ')'))
+pdocParensC :: PrintConfig -> PDoc -> PDoc
+pdocParensC cfg d = PCat (cBracket cfg '(') (PCat d (cBracket cfg ')'))
 
 -- | Check if a Rex is an "open" form (may expand vertically).
 isOpenRex :: Rex -> Bool

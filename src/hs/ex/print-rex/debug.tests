@@ -1,0 +1,121 @@
+-- DEBUG: Tests that use debug mode to verify structural parsing
+-- These tests verify behavior that cannot be tested via normal round-trip:
+-- - Whitespace sensitivity (space placement changes semantics)
+-- - Column sensitivity (poem/heir behavior depends on columns)
+-- - String content extraction (verify escape handling produces correct content)
+
+---- STRING CONTENT EXTRACTION -----------------------------------------------
+-- These verify that string literals extract to the correct content
+
+=== escaped quotes in string | 80 | debug
+"He said ""Hello"""
+---
+' He said "Hello"
+
+=== span strips content | 80 | debug
+'''hello'''
+---
+' hello
+
+=== span with quotes extracts quotes | 80 | debug
+'''say "hello"'''
+---
+' say "hello"
+
+=== span multiline strips indent | 80 | debug
+'''line one
+   line two'''
+---
+' line one
+' line two
+
+=== page strips content | 80 | debug
+'''
+hello
+'''
+---
+' hello
+
+=== page multiline joins lines | 80 | debug
+'''
+line one
+line two
+'''
+---
+' line one
+' line two
+
+---- WHITESPACE SENSITIVITY --------------------------------------------------
+-- Space placement determines whether runes are prefix or infix
+
+=== 3 +4 is prefix clump | 80 | debug
+3 +4
+---
+«3 ‹+4›»
+
+=== 3+ 4 is infix | 80 | debug
+3+ 4
+---
+«3 + 4»
+
+=== clumped runes not infix | 80 | debug
+(a ,b +c)
+---
+(a ‹,b› ‹+c›)
+
+---- COLUMN SENSITIVITY ------------------------------------------------------
+-- Poem and heir behavior depends on column positions
+
+=== poem: same col stays inside | 80 | debug
++ a
+b
+---
+⟨⟨+ a⟩
+ b⟩
+
+=== poem heir | 80 | debug
++ a
++ b
+---
+⟨⟨+ a⟩
+ ⟨+ b⟩⟩
+
+=== poem heir with children | 80 | debug
++ a
++ b
+  c
+---
+⟨⟨+ a⟩
+ ⟨+ b c⟩⟩
+
+=== poem in parens, low col | 80 | debug
+(+ a
+b)
+---
+(⟨+ a⟩ b)
+
+=== block: poem eats items | 80 | debug
+f =
+  + a
+  b
+  c
+---
+⟦f =⟧
+    ⟨⟨+ a⟩
+     b
+     c⟩
+
+---- STRUCTURE VERIFICATION --------------------------------------------------
+-- Tests that verify specific parsing rules
+
+=== two runes don't trigger block | 80 | debug
+a + b =
+  x
+---
+««a + b» = x»
+
+=== trailing rune after slot | 80 | debug
+(a b , 4 +)
+---
+(«a b» , «4»)
+
