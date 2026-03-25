@@ -123,7 +123,7 @@ stripTrad sp s =
                     stripDepth = length spaces
                     bodyLines = reverse revRest
                 in if afterSpaces == "\"" && all (validPageLine stripDepth) bodyLines
-                   then let stripped = map (stripLineForPage stripDepth) bodyLines
+                   then let stripped = map (unescapeQuotes . stripLineForPage stripDepth) bodyLines
                         in LEAF sp' TAPE (unlines' stripped)
                    else LEAF sp' (BAD InvalidPage) orig
 

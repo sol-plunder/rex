@@ -10,7 +10,6 @@ import System.Environment (getArgs)
 import qualified Rex.Lex   as Lex
 import qualified Rex.Tree2 as Tree2
 import qualified Rex.Rex   as Rex
-import qualified Rex.Print as Print
 import qualified Rex.PrintRex      as PrintRex
 import qualified Rex.PrintRexTest  as PrintRexTest
 import qualified Rex.Test          as Test
@@ -24,8 +23,7 @@ usage = unlines
     , "  tree        Parse stdin and print structural tree"
     , "  rex         Parse stdin and print Rex IR"
     , "  check       Parse stdin and report any errors (BAD tokens)"
-    , "  print       Parse stdin and pretty-print as Rex notation (old)"
-    , "  pretty-rex  Parse stdin and pretty-print using new layout engine (Rex)"
+    , "  pretty-rex  Parse stdin and pretty-print using layout engine"
     , "  test        Run Rex parser test suite"
     , "  rex-test    Run Rex pretty-printer test suite"
     ]
@@ -38,7 +36,6 @@ main = do
         ["tree"]       -> Tree2.treeMain
         ["rex"]        -> Rex.rexMain
         ["check"]      -> Rex.checkMain
-        ["print"]      -> Print.printMain
         ["pretty-rex"] -> PrintRex.prettyRexMain
         ["test"]       -> Test.testMain
         ["rex-test"]   -> PrintRexTest.printRexTestMain

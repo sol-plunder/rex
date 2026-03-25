@@ -27,7 +27,6 @@ library
       Rex.Tree2
       Rex.Error
       Rex.Rex
-      Rex.Print
       Rex.PrintRex
       Rex.PrintRexTest
       Rex.Test
@@ -56,7 +55,6 @@ executable rex
       Rex.Tree2
       Rex.Error
       Rex.Rex
-      Rex.Print
       Rex.PrintRex
       Rex.PrintRexTest
       Rex.Test

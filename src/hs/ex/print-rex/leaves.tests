@@ -12,9 +12,32 @@ foo
 === trad string | 80
 "hello"
 
+=== trad escaped quotes | 80
+"He said ""Hello"""
+
 === multiline trad | 80
 "multiline
  string"
+
+=== multiline trad escaped quotes | 80
+"line ""one""
+ line ""two"""
+
+=== tape simple | 80
+"
+hello
+"
+
+=== tape escaped quotes | 80
+"
+""Hello""
+"
+
+=== tape multiline with quotes | 80
+"
+He said ""hi""
+She said ""bye""
+"
 
 === multiline slug | 80
 ' line one
