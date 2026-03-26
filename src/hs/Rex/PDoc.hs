@@ -144,19 +144,32 @@ pdocRenderSDoc w =
 
         PStaircase step items ->
             -- Render items in staircase pattern, first item deepest.
-            -- ALL items get a newline before them at their computed indent.
+            -- First item may inline with spaces if it fits; rest get newlines.
             -- Returns backstep=0 to prevent leakage to outer context.
             let totalSteps = (length items - 1) * step
-                buildDoc [] _depth = best n k ds
-                buildDoc [item] _depth =
-                    -- Last item at base indent
+                -- Check if first item can be inlined (spaces instead of newline)
+                firstItemIndent = i + totalSteps
+                canInlineFirst = firstItemIndent >= k  -- target is ahead of current col
+                buildDoc [] _depth _isFirst = best n k ds
+                buildDoc [item] _depth _isFirst =
+                    -- Last (or only) item at base indent - always newline
                     best n k (DLCons i (PCat PLine item) ds)
-                buildDoc (item:rest) depth =
+                buildDoc (item:rest) depth isFirst =
                     let itemIndent = i + depth
-                        (_, restSDoc) = buildDoc rest (depth - step)
-                        -- Newline at itemIndent, then item, then rest
-                    in best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
-            in (0, snd (buildDoc items totalSteps))
+                        (_, restSDoc) = buildDoc rest (depth - step) False
+                    in if isFirst && canInlineFirst
+                       then -- Try to inline first item with spaces
+                            let spacesNeeded = max 1 (itemIndent - k)  -- at least 1 space
+                                spaces = PText spacesNeeded (replicate spacesNeeded ' ')
+                                (_, rendered) = best n k (DLCons itemIndent item DLNil)
+                            in if sdocFitsFlat (w - itemIndent) rendered
+                               then -- Fits! Use spaces instead of newline
+                                    best n itemIndent (DLCons itemIndent (PCat spaces item) (DLSCons i PEmpty 0 restSDoc))
+                               else -- Doesn't fit, use newline
+                                    best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
+                       else -- Not first item, always use newline
+                            best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
+            in (0, snd (buildDoc items totalSteps True))
 
         PFlow _maxW _isFirst [] ->
             best n k ds
@@ -221,18 +234,27 @@ pdocRenderSDoc w =
 
         PStaircase step items ->
             -- Inside DLSCons: render staircase, then continue with outer context
-            -- ALL items get newlines before them
+            -- First item may inline with spaces if it fits; rest get newlines.
             let totalSteps = (length items - 1) * step
-                buildDoc [] _depth = (bs, ss)
-                buildDoc [item] _depth =
-                    -- Last item at base indent
+                firstItemIndent = i + totalSteps
+                canInlineFirst = firstItemIndent >= k
+                buildDoc [] _depth _isFirst = (bs, ss)
+                buildDoc [item] _depth _isFirst =
+                    -- Last (or only) item at base indent - always newline
                     let (_, rest) = best n k (DLSCons i (PCat PLine item) bs ss)
                     in (bs, rest)
-                buildDoc (item:rest) depth =
+                buildDoc (item:rest) depth isFirst =
                     let itemIndent = i + depth
-                        (_, restSDoc) = buildDoc rest (depth - step)
-                    in (bs, snd (best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))))
-            in buildDoc items totalSteps
+                        (_, restSDoc) = buildDoc rest (depth - step) False
+                    in if isFirst && canInlineFirst
+                       then let spacesNeeded = max 1 (itemIndent - k)  -- at least 1 space
+                                spaces = PText spacesNeeded (replicate spacesNeeded ' ')
+                                (_, rendered) = best n k (DLCons itemIndent item DLNil)
+                            in if sdocFitsFlat (w - itemIndent) rendered
+                               then (bs, snd (best n itemIndent (DLCons itemIndent (PCat spaces item) (DLSCons i PEmpty 0 restSDoc))))
+                               else (bs, snd (best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))))
+                       else (bs, snd (best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))))
+            in buildDoc items totalSteps True
 
         PFlow _maxW _isFirst [] ->
             (bs, ss)

@@ -1,4 +1,3 @@
-Resolving dependencies...
 #### hitch <- parallel
 
 :| sire
@@ -344,8 +343,7 @@ distributeDownwards=(distributeDownwards insertRec)
   @ newChild | deleteRec config treeFun key mybV child
   @ childNeedsMerge | nodeNeedsMerge config treeFun newChild
   @ prunedHH | hhDelete key mybV hitchhikers
-  | if
-        | not childNeedsMerge
+  | if  | not childNeedsMerge
     | mkNode (putVal ctx newChild) prunedHH
   | maybeCaseBack
         | rightView ctx
@@ -601,8 +599,7 @@ abstype#(HSetMap k v)
     ++ setlistIntersect as bo
     ++ setlistIntersect as bs
     ++ setlistIntersect ao bs
-| if
-      | and overlap (not | setIsEmpty int)
+| if  | and overlap (not | setIsEmpty int)
   | CONS int rest
 rest
 
@@ -644,8 +641,7 @@ rest
 | listCase sets NIL
 & (x xs)
 @ xl | setLen x
-| if
-      | gte num xl
+| if  | gte num xl
   | lsDrop (sub num xl) xs
 | CONS
 * setDrop num x
@@ -659,8 +655,7 @@ rest
 | listCase sets NIL
 & (x xs)
 @ xl | setLen x
-| if
-      | lth num xl
+| if  | lth num xl
   | CONS (setTake num x) NIL
 | CONS
 * x
@@ -739,8 +734,7 @@ rest
 = (hsmInsert k v [mapConfig setConfig r])
 | Ifz r
   @ raw | hsRawSingleton v
-  @ leaf
-        | tabSing k raw
+  @ leaf | tabSing k raw
     ++ mapConfig
     ++ setConfig
     ++ MkPin leaf

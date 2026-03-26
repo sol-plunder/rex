@@ -62,8 +62,7 @@
 + end
 
 === closed after open staircase | 40
-+ x
-        + nested1
++ x     + nested1
     + nested2
   a b c d e f g
 

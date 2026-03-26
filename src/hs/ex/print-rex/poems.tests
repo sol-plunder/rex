@@ -114,15 +114,7 @@
 + zaz
 
 === backstep groups separated by closed | 80
-+ top
-      + a
-  + b
-  x
-      + c
-  + d
----
-+ top
-      + a
++ top + a
   + b
   x
   + c
