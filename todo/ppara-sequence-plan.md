@@ -1,13 +1,11 @@
 # Generic Sequence Printing with PPara
 
-Depends on: PBSReset fix (fix-backstep-leakage.md)
-
 ## Summary
 
 Add `PPara` to PDoc for paragraph-flow layout, then build a generic
 `seqDoc` in PrintRex that handles all child sequences uniformly:
-paragraph flow for closed items, backstep for open items. Replace
-all bespoke sequence logic with `seqDoc`.
+paragraph flow for closed items, staircase for open items. Replace
+`openChildrenVertical` with `seqDoc`.
 
 
 ## Part 1: PPara in PDoc
@@ -131,6 +129,10 @@ isOpenSeq _                = False
 BLOC is NOT open — its items are indented under it, siblings can't
 be captured by its parsing box.
 
+Note: This differs from the current `isOpenRex` which includes BLOC
+but not SLUG. The `isOpenSeq` classification is specifically for
+sequence layout purposes.
+
 ### Config
 
 ```haskell
@@ -158,18 +160,23 @@ seqDoc cfg items = go items
         in case (closed, open) of
             ([], []) -> PEmpty
             (cs, []) -> PPara maxW (map (rexDoc cfg) cs)
-            ([], os) -> PBSReset (openChain os (plineThen (go rest2)))
+            ([], os) -> pdocStaircase (map (rexDoc cfg) os ++ [plineThen (go rest2)])
             (cs, os) -> PCat (PPara maxW (map (rexDoc cfg) cs))
-                             (PBSReset (openChain os (plineThen (go rest2))))
-
-    openChain []     tail = tail
-    openChain [k]    PEmpty = PCat PLine (rexDoc cfg k)
-    openChain [k]    tail = pdocBackstep (rexDoc cfg k) tail
-    openChain (k:ks) tail = pdocBackstep (rexDoc cfg k) (openChain ks tail)
+                             (pdocStaircase (map (rexDoc cfg) os ++ [plineThen (go rest2)]))
 
     plineThen PEmpty = PEmpty
-    plineThen doc    = PCat PLine doc
+    plineThen doc    = doc  -- staircase adds its own newlines
 ```
+
+The key insight: `pdocStaircase` already handles:
+- Reverse-staircase indentation for open items
+- Isolation (returns backstep=0) so groups don't interfere
+- Newlines before each item
+
+So `seqDoc` just needs to:
+1. Group consecutive closed items → PPara
+2. Group consecutive open items → pdocStaircase
+3. Recurse for remaining items
 
 ### Worked example
 
@@ -181,10 +188,7 @@ Width: 40, maxW: 20, indent: 2
 
 ```
 PCat (PPara 20 [a, b, c])
-     (PBSReset
-       (pdocBackstep (+ foo)
-         (pdocBackstep (+ bar)
-           (PCat PLine (go [x,y,z,+ baz,p,q,r])))))
+     (pdocStaircase [+ foo, + bar, go [x,y,z,+ baz,p,q,r]])
 ```
 
 Inner `go [x,y,z,+ baz,p,q,r]`:
@@ -192,9 +196,7 @@ Inner `go [x,y,z,+ baz,p,q,r]`:
 
 ```
 PCat (PPara 20 [x, y, z])
-     (PBSReset
-       (pdocBackstep (+ baz)
-         (PCat PLine (PPara 20 [p, q, r]))))
+     (pdocStaircase [+ baz, PPara 20 [p, q, r]])
 ```
 
 Full structure:
@@ -202,30 +204,22 @@ Full structure:
 ```
 PCat
   (PPara 20 [a, b, c])
-  (PBSReset
-    (pdocBackstep (+ foo)
-      (pdocBackstep (+ bar)
-        (PCat PLine
-          (PCat
-            (PPara 20 [x, y, z])
-            (PBSReset
-              (pdocBackstep (+ baz)
-                (PCat PLine
-                  (PPara 20 [p, q, r])))))))))
+  (pdocStaircase
+    [+ foo,
+     + bar,
+     PCat (PPara 20 [x, y, z])
+          (pdocStaircase [+ baz, PPara 20 [p, q, r]])])
 ```
 
 Rendering at indent 2:
 
-PPara [a,b,c] → `a b c`
-
-PBSReset group 1:
-- Inner PBSReset (+baz) renders: +baz at indent 2+0+4=6, backstep=4.
-  PBSReset returns 0.
-- PPara [x,y,z] renders: `x y z`
-- PLine: newline
-- pdocBackstep (+bar): sees backstep=0 (from PBSReset), +bar at 2+0+4=6, backstep=4
-- pdocBackstep (+foo): sees backstep=4, +foo at 2+4+4=10, backstep=8
-- Outer PBSReset returns 0
+- PPara [a,b,c] → `a b c` (fits on one line)
+- pdocStaircase [+ foo, + bar, rest]:
+  - 3 items, step 4, so depths are 8, 4, 0
+  - `+ foo` at indent 2+8=10
+  - `+ bar` at indent 2+4=6
+  - rest at indent 2+0=2
+- Inner sequence renders similarly
 
 Output:
 
@@ -238,8 +232,6 @@ Output:
   p q r
 ```
 
-Correct!
-
 
 ## Part 3: Updating Call Sites
 
@@ -251,7 +243,7 @@ openDoc cfg r kids =
         flat = PCat runeD (PCat pdocSpace (openChildrenFlat cfg kids))
         vertical = PCat runeD (PCat pdocSpace (PDent (seqDoc cfg kids)))
     in if any isOpenSeq kids
-       then vertical   -- must go vertical, seqDoc handles backstep
+       then vertical   -- must go vertical, seqDoc handles staircase
        else PChoice flat vertical
 ```
 
@@ -292,16 +284,16 @@ by PLine. Each item's rexDoc handles its internal layout.
 
 ### heirDoc
 
-The heir renderer lays out siblings that are each independently
-rendered. Each sibling may contain backstep groups internally
-(via its own rexDoc → openDoc → seqDoc). Since heirDoc joins
-siblings with PLine and they're independent forms, it doesn't
-need seqDoc. Keep as-is.
+Keep as-is. The heir renderer lays out siblings that are each
+independently rendered. Each sibling may contain staircase groups
+internally (via its own rexDoc → openDoc → seqDoc). Since heirDoc
+joins siblings with PLine and they're independent forms, it doesn't
+need seqDoc.
 
 ### Remove
 
 - `openChildrenVertical` — replaced by seqDoc
-- `openRestAfterOpen` — replaced by seqDoc
+- `ChildGroup` data type — no longer needed
 
 
 ## Part 4: Test Cases
@@ -353,7 +345,7 @@ x y z
 
 All existing tests must pass. Key risk areas:
 - Poem tests: staircase shapes must be identical
-- Heir tests: independent backstep groups must be correct
+- Heir tests: independent staircase groups must be correct
 - Expr tests: flat layout unchanged, vertical layout may improve
 - Nest tests: outlined form unchanged
 - Block tests: unchanged
@@ -363,7 +355,7 @@ All existing tests must pass. Key risk areas:
 
 1. **maxW default value.** Start with 20, tune from there.
 
-2. **Slug handling.** Slugs are open (need backstep), but a trailing
+2. **Slug handling.** Slugs are open (need staircase), but a trailing
    slug could potentially share a line with preceding items. Future
    optimization.
 
@@ -379,3 +371,24 @@ All existing tests must pass. Key risk areas:
 5. **CLEAR EXPR as top-level.** A CLEAR expr at the top level has
    no framing — seqDoc produces the sequence directly. This
    replaces the current pdocSpaceOrLine-based exprDoc for CLEAR.
+
+6. **isOpenSeq vs isOpenRex.** The plan uses `isOpenSeq` which
+   includes SLUG but not BLOC. This differs from the current
+   `isOpenRex`. Need to verify this is the right classification
+   for sequence layout vs other uses.
+
+
+## Relationship to Current Code
+
+The current `openChildrenVertical` already does grouping:
+
+```haskell
+openChildrenVertical cfg kids = renderGroups (groupChildren kids)
+```
+
+This plan generalizes that by:
+1. Using PPara instead of simple PLine-separated closed items
+2. Making it available for other sequence contexts (exprDoc, etc.)
+3. Adding the `cfgMaxInline` configuration
+
+The staircase handling via `pdocStaircase` remains unchanged.

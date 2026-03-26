@@ -34,6 +34,7 @@ module Rex.PDoc
     , pdocSpace
     , pdocSpaceOrLine
     , pdocStaircase
+    , pdocFlow
     , pdocNoFit
     , pdocIntersperse
     , pdocIntersperseFun
@@ -60,6 +61,12 @@ data PDoc
                                 -- Items are rendered in reverse-depth order:
                                 -- first at deepest indent, last at base indent.
                                 -- Each item gets PLine before it.
+    | PFlow !Int !Bool [PDoc]   -- ^ flow layout: pack items greedily onto lines
+                                -- Int = max item width for flow participation.
+                                -- Bool = True if this is the first item (no leading space).
+                                -- Small items are packed with spaces between.
+                                -- Large items (exceed limit or have newlines)
+                                -- get their own line.
     deriving (Show)
 
 
@@ -145,6 +152,33 @@ pdocRenderSDoc w =
                     in best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
             in (0, snd (buildDoc items totalSteps))
 
+        PFlow _maxW _isFirst [] ->
+            best n k ds
+
+        PFlow maxW isFirst (item:rest) ->
+            -- Render item speculatively to check its size
+            let (_, rendered) = best n k (DLCons i item DLNil)
+                isSmall = sdocFitsFlat maxW rendered
+                fitsHere = sdocFitsFlat (w - k - 1) rendered  -- room for space + item
+                atLineStart = k == i
+                needSpace = not isFirst && not atLineStart
+            in if isSmall && fitsHere
+               then if needSpace
+                    then -- append with space between items
+                         best n k (DLCons i pdocSpace
+                                    (DLCons i item
+                                      (DLCons i (PFlow maxW False rest) ds)))
+                    else -- first item or at line start, no leading space
+                         best n k (DLCons i item (DLCons i (PFlow maxW False rest) ds))
+               else if not atLineStart
+                    then -- wrap to new line, retry (becomes first on that line)
+                         let (bs', r) = best i i (DLCons i (PFlow maxW True (item:rest)) ds)
+                         in (bs', SLine i r)
+                    else -- at line start, item is big, emit as-is then newline
+                         best n k (DLCons i item
+                                    (DLCons i PLine
+                                      (DLCons i (PFlow maxW True rest) ds)))
+
     best n k (DLSCons i d bs ss) = case d of
         PEmpty ->
             (bs, ss)
@@ -188,6 +222,33 @@ pdocRenderSDoc w =
                     in (bs, snd (best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))))
             in buildDoc items totalSteps
 
+        PFlow _maxW _isFirst [] ->
+            (bs, ss)
+
+        PFlow maxW isFirst (item:rest) ->
+            -- Render item speculatively to check its size
+            let (_, rendered) = best n k (DLCons i item DLNil)
+                isSmall = sdocFitsFlat maxW rendered
+                fitsHere = sdocFitsFlat (w - k - 1) rendered  -- room for space + item
+                atLineStart = k == i
+                needSpace = not isFirst && not atLineStart
+            in if isSmall && fitsHere
+               then if needSpace
+                    then -- append with space between items
+                         best n k (DLCons i pdocSpace
+                                    (DLCons i item
+                                      (DLSCons i (PFlow maxW False rest) bs ss)))
+                    else -- first item or at line start, no leading space
+                         best n k (DLCons i item (DLSCons i (PFlow maxW False rest) bs ss))
+               else if not atLineStart
+                    then -- wrap to new line, retry (becomes first on that line)
+                         let (_, r) = best i i (DLCons i (PFlow maxW True (item:rest)) (DLSCons i PEmpty bs ss))
+                         in (bs, SLine i r)
+                    else -- at line start, item is big, emit as-is then newline
+                         best n k (DLCons i item
+                                    (DLCons i PLine
+                                      (DLSCons i (PFlow maxW True rest) bs ss)))
+
 -- | Choose the first rendered document if it fits within the page width,
 -- otherwise use the second.
 pdocRenderNicest :: Int -> Int -> Int -> (Int, SDoc) -> (Int, SDoc) -> (Int, SDoc)
@@ -204,6 +265,16 @@ sdocFits w (SChar _ x)              = sdocFits (w - 1) x
 sdocFits w (SText l _ x)            = sdocFits (w - l) x
 sdocFits _ (SLine _ _)              = True
 sdocFits _ (SNoFit _)               = False
+
+-- | Stricter variant of sdocFits that rejects newlines.
+-- Used by PFlow to check if an item is truly single-line.
+sdocFitsFlat :: Int -> SDoc -> Bool
+sdocFitsFlat w _ | w < 0       = False
+sdocFitsFlat _ SEmpty           = True
+sdocFitsFlat w (SChar _ x)      = sdocFitsFlat (w - 1) x
+sdocFitsFlat w (SText l _ x)    = sdocFitsFlat (w - l) x
+sdocFitsFlat _ (SLine _ _)      = False
+sdocFitsFlat _ (SNoFit _)       = False
 
 -- | Convert a rendered 'SDoc' to a 'String'.
 sdocToString :: SDoc -> String
@@ -276,6 +347,14 @@ pdocStaircase :: [PDoc] -> PDoc
 pdocStaircase []    = PEmpty
 pdocStaircase [x]   = PCat PLine x  -- single item still needs newline
 pdocStaircase items = PStaircase 4 items
+
+-- | Create a flow layout that packs items greedily onto lines.
+-- Small items (within maxW) are packed with spaces between them.
+-- Large items (exceeding maxW or containing newlines) get their own line.
+pdocFlow :: Int -> [PDoc] -> PDoc
+pdocFlow _    []    = PEmpty
+pdocFlow _    [x]   = x
+pdocFlow maxW items = PFlow maxW True items  -- True = first item, no leading space
 
 -- | Mark a document as "never fits" for PChoice. When this appears in the
 -- left branch of a PChoice, it forces the choice to use the right branch.

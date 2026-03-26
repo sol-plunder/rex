@@ -89,3 +89,16 @@ test-suite print-rex-test
     , optics
     , pretty-show
   default-language: Haskell2010
+
+
+test-suite pdoc-test
+  type:           exitcode-stdio-1.0
+  main-is:        PDocTestMain.hs
+  hs-source-dirs: src/hs
+  other-modules:
+      Rex.PDoc
+      Rex.PDocTest
+  ghc-options:    -Wall -Wcompat -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base             >= 4.7 && < 5
+  default-language: Haskell2010
