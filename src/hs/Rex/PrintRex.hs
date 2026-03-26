@@ -35,18 +35,20 @@ data ColorScheme = NoColors | BoldColors
   deriving (Eq, Show)
 
 data PrintConfig = PrintConfig
-    { cfgColors :: ColorScheme
-    , cfgDebug  :: Bool
+    { cfgColors    :: ColorScheme
+    , cfgDebug     :: Bool
+    , cfgMaxFlow   :: Int     -- ^ max item width for flow layout in poems
+    , cfgMaxInline :: Int     -- ^ max width for inlining open children
     }
   deriving (Eq, Show)
 
--- | Default config: no colors, no debug
+-- | Default config: no colors, no debug, flow items up to 30 chars, inline up to 50
 defaultConfig :: PrintConfig
-defaultConfig = PrintConfig NoColors False
+defaultConfig = PrintConfig NoColors False 30 50
 
--- | Debug config: no colors, debug enabled
+-- | Debug config: no colors, debug enabled, flow items up to 30 chars, inline up to 50
 debugConfig :: PrintConfig
-debugConfig = PrintConfig NoColors True
+debugConfig = PrintConfig NoColors True 30 50
 
 -- | Render a Rex to a String, fitting within the given page width.
 printRex :: Int -> Rex -> String
@@ -54,7 +56,7 @@ printRex width = render width . rexDoc defaultConfig
 
 -- | Render a Rex with colors.
 printRexColor :: ColorScheme -> Int -> Rex -> String
-printRexColor colors width = render width . rexDoc (PrintConfig colors False)
+printRexColor colors width = render width . rexDoc (PrintConfig colors False 30 50)
 
 -- | Render a Rex with full config.
 printRexWith :: PrintConfig -> Int -> Rex -> String
@@ -441,19 +443,24 @@ openDoc cfg r kids =
     let runeD = cRune cfg r
         flat = PCat runeD (PCat pdocSpace (openChildrenFlat cfg kids))
         vertical = PCat runeD (PCat pdocSpace (PDent (openChildrenVertical cfg kids)))
-        -- If last child is inherently vertical (HEIR or BLOC), force vertical layout
-        hasInherentlyVerticalLast = case kids of
-            [] -> False
-            _  -> case last kids of
-                      HEIR _ _       -> True
-                      BLOC _ _ _ _ _ -> True
-                      _              -> False
-        inner = if hasInherentlyVerticalLast
+        -- Force vertical if:
+        -- 1. An open child is followed by more children (heir collision), OR
+        -- 2. The last child is open and too big to inline nicely
+        hasOpenFollowedByMore = hasOpenThenMore kids
+        lastChildTooBig = case lastMay kids of
+            Just k | forcesVertical k -> rexMinWidth k > cfgMaxInline cfg
+            _ -> False
+        inner = if hasOpenFollowedByMore || lastChildTooBig
                 then vertical
                 else PChoice flat vertical
     in if cfgDebug cfg
        then PCat (pdocText "⟨") (PCat inner (pdocText "⟩"))
        else inner
+
+-- | Safe last element
+lastMay :: [a] -> Maybe a
+lastMay [] = Nothing
+lastMay xs = Just (last xs)
 
 openChildrenFlat :: PrintConfig -> [Rex] -> PDoc
 openChildrenFlat cfg = pdocIntersperse pdocSpace . map (rexDoc cfg)
@@ -477,18 +484,27 @@ openChildrenVertical cfg kids = renderGroups (groupChildren kids)
             ([], os) -> OpenGroup os : groupChildren rest2
             (cs, os) -> ClosedGroup cs : OpenGroup os : groupChildren rest2
 
-    -- Render groups. PLine between closed groups, but OpenGroup handles its own newlines.
+    -- Render groups. OpenGroup handles its own newlines.
+    -- When OpenGroup has following groups, indent staircase to avoid heir collision.
     renderGroups :: [ChildGroup] -> PDoc
     renderGroups []     = PEmpty
     renderGroups [g]    = renderGroup g
-    renderGroups (g:gs) = case gs of
-        (OpenGroup _ : _) -> PCat (renderGroup g) (renderGroups gs)  -- open group has own newlines
-        _                 -> PCat (renderGroup g) (PCat PLine (renderGroups gs))
+    renderGroups (g:gs) = case (g, gs) of
+        (_, OpenGroup _ : _) ->
+            -- Next is open group, it handles its own newlines
+            PCat (renderGroup g) (renderGroups gs)
+        (OpenGroup os, _) ->
+            -- Open group with more items after: indent the staircase by 2
+            -- to leave room for following items at base indent
+            let indentedStaircase = pdocStaircase (map (\o -> PCat (pdocText "  ") (rexDoc cfg o)) os)
+            in PCat indentedStaircase (PCat PLine (renderGroups gs))
+        _ ->
+            PCat (renderGroup g) (PCat PLine (renderGroups gs))
 
     -- Render a single group
     renderGroup :: ChildGroup -> PDoc
     renderGroup (ClosedGroup cs) =
-        pdocIntersperseFun (\x y -> PCat x (PCat PLine y)) (map (rexDoc cfg) cs)
+        pdocFlow (cfgMaxFlow cfg) (map (rexDoc cfg) cs)
     renderGroup (OpenGroup os) =
         pdocStaircase (map (rexDoc cfg) os)
 
@@ -588,12 +604,59 @@ rexDocTight cfg rex = case rex of
 pdocParensC :: PrintConfig -> PDoc -> PDoc
 pdocParensC cfg d = PCat (cBracket cfg '(') (PCat d (cBracket cfg ')'))
 
--- | Check if a Rex is an "open" form (may expand vertically).
+-- | Check if a Rex is an "open" form that needs staircase layout.
+-- Used for grouping children in vertical layout.
 isOpenRex :: Rex -> Bool
 isOpenRex (OPEN _ _ _)     = True
 isOpenRex (BLOC _ _ _ _ _) = True
 isOpenRex (HEIR _ _)       = True
 isOpenRex _                = False
+
+-- | Check if a Rex forces vertical layout but doesn't need staircase.
+-- SLUG is always wrapped in pdocNoFit so it can't render flat.
+forcesVertical :: Rex -> Bool
+forcesVertical (LEAF _ SLUG _) = True
+forcesVertical x               = isOpenRex x
+
+-- | Check if the list has a vertical-forcing child followed by more children.
+-- This causes heir collision in flat layout, so vertical is required.
+hasOpenThenMore :: [Rex] -> Bool
+hasOpenThenMore []     = False
+hasOpenThenMore [_]    = False  -- last element, no collision possible
+hasOpenThenMore (x:xs) = forcesVertical x || hasOpenThenMore xs
+
+-- | Compute the minimum flat width of a Rex (characters if rendered flat).
+-- This is a cheap O(n) traversal, no rendering involved.
+rexMinWidth :: Rex -> Int
+rexMinWidth (LEAF _ shape s) = leafWidth shape s
+rexMinWidth (NEST _ _ r kids) = 2 + length r + 1 + childrenWidth kids  -- (rune children)
+rexMinWidth (EXPR _ _ kids) = 2 + childrenWidth kids                    -- (children)
+rexMinWidth (PREF _ r x) = length r + rexMinWidth x
+rexMinWidth (TYTE _ sep kids) = sum (map rexMinWidth kids) + (length kids - 1) * length sep
+rexMinWidth (BLOC _ _ r h ks) = length r + 1 + rexMinWidth h + childrenWidth ks
+rexMinWidth (OPEN _ r kids) = length r + 1 + childrenWidth kids
+rexMinWidth (JUXT _ kids) = sum (map rexMinWidth kids)
+rexMinWidth (HEIR _ kids) = childrenWidth kids
+
+-- | Width of leaf content including any quoting overhead
+leafWidth :: LeafShape -> String -> Int
+leafWidth WORD s = length s
+leafWidth QUIP s = 1 + length s                    -- 'x
+leafWidth CORD s = 2 + length s + countQuotes s    -- "x" with "" escaping
+leafWidth TAPE s = length s + 2                    -- rough estimate for block strings
+leafWidth PAGE s = length s + 6                    -- ''' on both sides
+leafWidth SPAN s = length s + 6                    -- '''x'''
+leafWidth SLUG s = 2 + length s                    -- ' x
+leafWidth (BAD _) s = length s
+
+-- | Count quotes that need escaping in CORD strings
+countQuotes :: String -> Int
+countQuotes = length . filter (== '"')
+
+-- | Total width of children with spaces between
+childrenWidth :: [Rex] -> Int
+childrenWidth [] = 0
+childrenWidth kids = sum (map rexMinWidth kids) + length kids - 1
 
 bracketChars :: Color -> (Char, Char)
 bracketChars PAREN = ('(', ')')
@@ -611,7 +674,7 @@ prettyRexMain :: Bool -> IO ()
 prettyRexMain debug = do
     isTty <- hIsTerminalDevice stdout
     let colors = if isTty then BoldColors else NoColors
-    let cfg = PrintConfig colors debug
+    let cfg = PrintConfig colors debug 30 50
     src <- getContents
     -- Force full input before parsing (avoid lazy IO issues with interactive input)
     let !_ = length src

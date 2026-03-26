@@ -51,6 +51,7 @@ data PDoc
     = PEmpty
     | PChar  !Char
     | PText  !Int String        -- ^ precomputed length, text
+    | PSpace                    -- ^ layout space (dropped before newlines)
     | PLine                     -- ^ newline (renders as newline + indentation)
     | PCat   PDoc PDoc          -- ^ concatenation
     | PDent  PDoc               -- ^ set indent level to current column
@@ -77,6 +78,7 @@ data SDoc
     = SEmpty
     | SChar  !Char SDoc
     | SText  !Int String SDoc   -- ^ length, text, rest
+    | SSpace !Int SDoc          -- ^ layout spaces count (dropped before newlines/end)
     | SLine  !Int SDoc          -- ^ indentation level, rest
     | SNoFit SDoc               -- ^ marker that this doesn't fit (for PChoice)
     deriving (Show)
@@ -116,6 +118,10 @@ pdocRenderSDoc w =
         PText l s ->
             let (bs, rest) = best n (k + l) ds
             in (bs, SText l s rest)
+
+        PSpace ->
+            let (bs, rest) = best n (k + 1) ds
+            in (bs, SSpace 1 rest)
 
         PLine ->
             let (bs, rest) = best i i ds
@@ -174,10 +180,13 @@ pdocRenderSDoc w =
                     then -- wrap to new line, retry (becomes first on that line)
                          let (bs', r) = best i i (DLCons i (PFlow maxW True (item:rest)) ds)
                          in (bs', SLine i r)
-                    else -- at line start, item is big, emit as-is then newline
-                         best n k (DLCons i item
-                                    (DLCons i PLine
-                                      (DLCons i (PFlow maxW True rest) ds)))
+                    else -- at line start, item is big, emit as-is
+                         -- only add newline if there are more items
+                         case rest of
+                             [] -> best n k (DLCons i item ds)
+                             _  -> best n k (DLCons i item
+                                              (DLCons i PLine
+                                                (DLCons i (PFlow maxW True rest) ds)))
 
     best n k (DLSCons i d bs ss) = case d of
         PEmpty ->
@@ -188,6 +197,9 @@ pdocRenderSDoc w =
 
         PText l s ->
             (bs, SText l s ss)
+
+        PSpace ->
+            (bs, SSpace 1 ss)
 
         PLine ->
             (bs, SLine i ss)
@@ -244,10 +256,13 @@ pdocRenderSDoc w =
                     then -- wrap to new line, retry (becomes first on that line)
                          let (_, r) = best i i (DLCons i (PFlow maxW True (item:rest)) (DLSCons i PEmpty bs ss))
                          in (bs, SLine i r)
-                    else -- at line start, item is big, emit as-is then newline
-                         best n k (DLCons i item
-                                    (DLCons i PLine
-                                      (DLSCons i (PFlow maxW True rest) bs ss)))
+                    else -- at line start, item is big, emit as-is
+                         -- only add newline if there are more items
+                         case rest of
+                             [] -> best n k (DLCons i item (DLSCons i PEmpty bs ss))
+                             _  -> best n k (DLCons i item
+                                              (DLCons i PLine
+                                                (DLSCons i (PFlow maxW True rest) bs ss)))
 
 -- | Choose the first rendered document if it fits within the page width,
 -- otherwise use the second.
@@ -263,6 +278,7 @@ sdocFits w _            | w < 0     = False
 sdocFits _ SEmpty                   = True
 sdocFits w (SChar _ x)              = sdocFits (w - 1) x
 sdocFits w (SText l _ x)            = sdocFits (w - l) x
+sdocFits w (SSpace n x)             = sdocFits (w - n) x
 sdocFits _ (SLine _ _)              = True
 sdocFits _ (SNoFit _)               = False
 
@@ -273,14 +289,27 @@ sdocFitsFlat w _ | w < 0       = False
 sdocFitsFlat _ SEmpty           = True
 sdocFitsFlat w (SChar _ x)      = sdocFitsFlat (w - 1) x
 sdocFitsFlat w (SText l _ x)    = sdocFitsFlat (w - l) x
+sdocFitsFlat w (SSpace n x)     = sdocFitsFlat (w - n) x
 sdocFitsFlat _ (SLine _ _)      = False
 sdocFitsFlat _ (SNoFit _)       = False
 
 -- | Convert a rendered 'SDoc' to a 'String'.
+-- Layout spaces (SSpace) are dropped before newlines and at end of string.
 sdocToString :: SDoc -> String
 sdocToString SEmpty        = ""
 sdocToString (SChar c x)   = c : sdocToString x
 sdocToString (SText _ s x) = s ++ sdocToString x
+sdocToString (SSpace n x)  = case skipSpaces x of
+    SEmpty     -> ""                                    -- drop at end
+    SLine i r  -> '\n' : replicate i ' ' ++ sdocToString r  -- drop before newline
+    other      -> replicate n ' ' ++ sdocToString other -- keep otherwise
+  where
+    -- Skip over any additional SSpace nodes
+    skipSpaces (SSpace m y) = case skipSpaces y of
+        SEmpty    -> SEmpty
+        SLine i r -> SLine i r
+        other     -> SSpace (n + m) other  -- accumulate spaces
+    skipSpaces y = y
 sdocToString (SLine i x)   = '\n' : replicate i ' ' ++ sdocToString x
 sdocToString (SNoFit x)    = sdocToString x  -- SNoFit is just a marker, render content
 
@@ -330,9 +359,9 @@ pdocSquotes = pdocEnclose (PChar '\'') (PChar '\'')
 pdocDquotes :: PDoc -> PDoc
 pdocDquotes = pdocEnclose (PChar '"') (PChar '"')
 
--- | A single space.
+-- | A single layout space (dropped before newlines and at end).
 pdocSpace :: PDoc
-pdocSpace = PChar ' '
+pdocSpace = PSpace
 
 -- | Concatenate two documents, preferring a space between them but
 -- falling back to a newline if they don't fit.

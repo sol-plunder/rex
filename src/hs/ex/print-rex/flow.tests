@@ -1,0 +1,126 @@
+-- FLOW: paragraph flow layout for closed children in poems
+-- Tests that closed children in vertical poems flow together on lines
+-- instead of each getting their own line.
+
+=== flow packs small items on line | 40
+| a b c d e f g h i j k l m n
+
+=== flow stays flat when fits | 30
+| a b c d e f g h i j k l m n
+
+=== flow wraps multiple lines narrow | 20
+| aa bb cc dd ee ff
+  gg hh
+
+=== flow with open forces vertical | 40
+| a b c
+    | nested1
+    | nested2
+  d e f
+
+=== large expr stays flat when fits | 40
+| a b (mediumFunction x) c d e
+
+=== flow respects indent | 30
+= foo | a b c d e f g h
+
+=== single closed before open | 40
+| x | nested
+
+=== multiple closed before single open | 40
+| a b c d | nested
+
+=== single open then closed | 40
+|
+    | nested
+  a b c
+
+=== multi-heir edge case | 40
+| | nested
+  a b c
+---
+| | nested
+  a
+  b
+  c
+
+=== flow with expressions fits | 40
+| (foo 1) (bar 2) (baz 3) (qux 4)
+
+=== all fits flat | 80
+| short items here
+
+=== staircase with closed flow | 50
++ foo a b c
+      + x1
+      + x2
+  + y1
+  + y2
++ bar p q r
+      + z1
+  + z2
++ end
+
+=== closed after open staircase | 40
++ x
+        + nested1
+    + nested2
+  a b c d e f g
+
+=== heir with flow children | 40
+= def1 | a b c d e f g
+= def2 | x y z
+
+=== nested poem vertical | 30
+| x | a b c d e f g
+
+=== deeply nested vertical | 25
+| a | b c d e f | x y z w
+
+=== tight items flow | 30
+| foo.bar baz.qux one.two
+
+=== quoted items fits | 40
+| "hello" "world" "foo" "bar" "baz"
+
+=== flow wraps at narrow width | 15
+| aaa bbb ccc
+  ddd eee
+
+=== flow many items narrow | 12
+| a b c d e f g h
+---
+| a b c d e
+  f g h
+
+=== vertical alternating groups | 30
+| a b c
+    | open1
+  d e f
+    | open2
+  g h i
+
+=== flow after long open one per line | 40
+| | thisIsAVeryLongNestedPoem x y
+  a b c d
+---
+| | thisIsAVeryLongNestedPoem x y
+  a
+  b
+  c
+  d
+
+=== closed only vertical narrow | 18
+| alpha beta gamma delta epsilon
+---
+| alpha beta gamma
+  delta epsilon
+
+=== mixed widths fits | 25
+| a bb ccc dddd eeeee f
+
+=== mixed widths wraps | 20
+| a bb ccc dddd eeeee f
+---
+| a bb ccc dddd
+  eeeee f

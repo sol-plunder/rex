@@ -57,9 +57,8 @@
 === nested slug | 80
 = outer
   ' inner docstring
-  = inner
-    , field1
-    , field2
+  = inner , field1
+          , field2
 
 -- Slug and quip forced vertical by narrow width
 === slug quip narrow | 20
@@ -86,12 +85,8 @@
 ' comment -
 child
 
--- Docstring before nested structure (collapses inline)
+-- Docstring before nested structure (open child is last, so stays flat)
 === docstring before nested | 80
-' Module documentation
-= module
-  | export func
----
 ' Module documentation
 = module | export func
 

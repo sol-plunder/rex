@@ -6,7 +6,7 @@
 === poem with three children | 80
 + a b c
 
-=== nested poem inline | 80
+=== nested poem vertical | 80
 + a * b c
 
 === nested poem chain | 80
@@ -53,18 +53,10 @@
   | add x y
 
 === readme runic style | 80
-= exampleList ~ ? (sillyFn x y)
-                | sz | weld [5 -4 3]
-                     | map add-x [1 #(x+4 * y)]
-              ~ + user : %sol
-                + repo : b"plunder"
-                + path : /home/sol/r/plunder
----
 = exampleList
   ~ ? (sillyFn x y)
-    | sz
-      | weld [5 -4 3]
-      | map add-x [1 #(x+4 * y)]
+    | sz | weld [5 -4 3]
+         | map add-x [1 #(x+4 * y)]
   ~ + user : %sol
     + repo : b"plunder"
     + path : /home/sol/r/plunder

@@ -1,10 +1,4 @@
 Resolving dependencies...
-Build profile: -w ghc-9.10.3 -O1
-In order, the following will be built (use -v for more details):
- - rex-0.1.0.0 (exe:rex) (configuration changed)
-Configuring executable 'rex' for rex-0.1.0.0...
-Preprocessing executable 'rex' for rex-0.1.0.0...
-Building executable 'rex' for rex-0.1.0.0...
 #### hitch <- parallel
 
 :| sire
@@ -123,7 +117,9 @@ abstype#(LazyIndex k v)
 @ [leftKeys rightKeys] | span a&(lte a key) keys
 @ n | len leftKeys
 @ [leftVals valAndRightVals] | splitAt n vals
-| maybeCase | rowUncons valAndRightVals | Die "valView: can't split empty index"
+| maybeCase
+      | rowUncons valAndRightVals
+  | Die "valView: can't split empty index"
 & [val rightVals]
 [[leftKeys leftVals rightKeys rightVals] val]
 
@@ -178,8 +174,7 @@ abstype#(LazyIndex k v)
   @ [leaf rem] | leafSplitAt maxLeafItems items
   @ key | leafFirstKey rem
   | loop rem (CONS key keys) (CONS leaf leafs)
-| if
-  (gth itemLen maxLeafItems)
+| if (gth itemLen maxLeafItems)
   @ numLeft | div itemLen 2
   @ [left right] | leafSplitAt numLeft items
   @ key | leafFirstKey right
@@ -224,8 +219,7 @@ abstype#(LazyIndex k v)
 = (fixup treeConfig treeFun index)
 @ TREE_CONFIG(.. ) treeConfig
 @ !newRootNode | fromSingletonIndex index
-| Ifz
-  newRootNode
+| Ifz newRootNode
   @ !index | extendIndex treeFun maxLeafItems index
   | fixup treeConfig treeFun index
 newRootNode
@@ -242,14 +236,10 @@ newRootNode
   # case il
   - NIL | (NIL , NIL)
   - CONS [keys vals] _ | (listFromRow keys , ~[vals])
-- CONS
-  k
-  ks
+- CONS k ks
   # case il
   - NIL (Die "missing index in joinIndex")
-  - CONS
-    [keys vals]
-    ts
+  - CONS [keys vals] ts
     @ [keyrest valrest] | joinIndex ks ts
     @ !kout | listWeld (listFromRow keys) (CONS k keyrest)
     @ !vout | CONS vals valrest
@@ -277,22 +267,15 @@ newRootNode
 @ TREE_CONFIG(.. ) treeConfig
 @ TREE_FUN(.. ) treeFun
 # case (caseNode node)
-- INDEXNODE
-  children
-  hitchhikers
+- INDEXNODE children hitchhikers
   @ !merged | hhMerge hitchhikers toAdd
   | if
     (gth (hhLength merged) maxHitchhikers)
-    @ !distrib | distributeDownwards
-                 insertRec
-                 treeConfig
-                 treeFun
-                 merged
-                 children
+    @ !distrib
+      | distributeDownwards insertRec treeConfig treeFun merged children
     | extendIndex treeFun maxLeafItems distrib
   | else | **singletonIndex | mkNode children merged
-- LEAFNODE
-  items
+- LEAFNODE items
   @ !inserted (leafInsert items toAdd)
   | splitLeafMany treeFun maxLeafItems inserted
 
@@ -313,13 +296,9 @@ distributeDownwards=(distributeDownwards insertRec)
 ^ _ hhEmpty node
 ? (go_openTreeFun hh node)
 # case (caseNode node)
-- LEAFNODE
-  leaves
-  @ !item (leafInsert leaves hh)
-  [item]
-- INDEXNODE
-  [keys vals]
-  hitchhikers
+- LEAFNODE leaves @ !item (leafInsert leaves hh)
+                  [item]
+- INDEXNODE [keys vals] hitchhikers
   @ !merged (hhMerge hitchhikers hh)
   @ splitHH | splitHitchhikersByKeys treeFun keys merged
   | cat
@@ -336,23 +315,19 @@ distributeDownwards=(distributeDownwards insertRec)
 @ TREE_CONFIG(.. ) config
 @ TREE_FUN(.. ) treeFun
 # case (caseNode left)
-- INDEXNODE
-  leftIdx
-  leftHH
+- INDEXNODE leftIdx leftHH
   # case (caseNode right)
-  - INDEXNODE
-    rightIdx
-    rightHH
-    @ !left | distributeDownwards config treeFun leftHH leftIdx
-    @ !right | distributeDownwards config treeFun rightHH rightIdx
+  - INDEXNODE rightIdx rightHH
+    @ !left
+      | distributeDownwards config treeFun leftHH leftIdx
+    @ !right
+      | distributeDownwards config treeFun rightHH rightIdx
     @ !merged | mergeIndex left middleKey right
     | extendIndex treeFun maxIdxKeys merged
   - LEAFNODE _ | Die %nodeMismatch
-- LEAFNODE
-  leftLeaf
+- LEAFNODE leftLeaf
   # case (caseNode right)
-  - LEAFNODE
-    rightLeaf
+  - LEAFNODE rightLeaf
     @ !merged | leafMerge leftLeaf rightLeaf
     | splitLeafMany treeFun maxLeafItems merged
   - INDEXNODE _ _ | Die %nodeMismatch
@@ -364,25 +339,25 @@ distributeDownwards=(distributeDownwards insertRec)
 @ TREE_FUN(.. ) treeFun
 # case (caseNode node)
 - LEAFNODE leaves | mkLeaf | leafDelete key mybV leaves
-- INDEXNODE
-  index
-  hitchhikers
+- INDEXNODE index hitchhikers
   @ [ctx child] | valView key index
   @ newChild | deleteRec config treeFun key mybV child
   @ childNeedsMerge | nodeNeedsMerge config treeFun newChild
   @ prunedHH | hhDelete key mybV hitchhikers
-  | if | not childNeedsMerge | mkNode (putVal ctx newChild) prunedHH
+  | if
+        | not childNeedsMerge
+    | mkNode (putVal ctx newChild) prunedHH
   | maybeCaseBack
-    
-            | rightView ctx
+        | rightView ctx
     & [rKey rChild rCtx]
-    | mkNode | putIdx rCtx | mergeNodes config treeFun newChild rKey rChild
+    | mkNode
+      | putIdx rCtx | mergeNodes config treeFun newChild rKey rChild
     prunedHH
   | maybeCaseBack
-    
         | leftView ctx
     & [lCtx lChild lKey]
-    | mkNode | putIdx lCtx | mergeNodes config treeFun lChild lKey newChild
+    | mkNode
+      | putIdx lCtx | mergeNodes config treeFun lChild lKey newChild
     prunedHH
   | Die "deleteRec: node with single child"
 
@@ -440,19 +415,19 @@ abstype#(HSetMap k v)
 | Ifz top | hmSingleton config k v
 @ !index | insertRec config hhMapTF p top
 @ !fixed
-  
       | fixup config hhMapTF index
   ++ config
   ++ fixed
 
 = (hmInsertMany tab [config top])
-| if | tabIsEmpty tab [config top]
+| if
+    | tabIsEmpty tab
+  [config top]
 @ TREE_CONFIG(.. ) config
 @ !index
   | Ifz top | splitLeafMany hhMapTF maxLeafItems tab
   | insertRec config hhMapTF tab top
 @ !fixed
-  
       | fixup config hhMapTF index
   ++ config
   ++ fixed
@@ -461,13 +436,10 @@ abstype#(HSetMap k v)
 | Ifz r [config r]
 @ newRootNode | deleteRec config hhMapTF k NONE r
 # case (hmCaseNode newRootNode)
-- LEAFNODE
-  leaves
+- LEAFNODE leaves
   ++ config
   ++ if (tabIsEmpty leaves) NONE (SOME newRootNode)
-- INDEXNODE
-  index
-  hitchhikers
+- INDEXNODE index hitchhikers
   @ childNode | fromSingletonIndex index
   | Ifz childNode [config newRootNode]
   @ base [config childNode]
@@ -479,12 +451,11 @@ abstype#(HSetMap k v)
 ^ _ r
 ? (lookInNode node)
 # case (hmCaseNode node)
-- INDEXNODE
-  index
-  hitchhikers
-  : v < maybeCase (tabLookup key hitchhikers) ( lookInNode
-                                              | findSubnodeByKey key index
-                                              )
+- INDEXNODE index hitchhikers
+  : v
+    < maybeCase (tabLookup key hitchhikers) ( lookInNode
+                                            | findSubnodeByKey key index
+                                            )
   | (SOME v)
 - LEAFNODE items | tabLookup key items
 
@@ -556,9 +527,7 @@ abstype#(HSetMap k v)
 ^ _ r
 ? (lookInNode node)
 # case (hsCaseNode node)
-- INDEXNODE
-  index
-  hitchhikers
+- INDEXNODE index hitchhikers
   | if (setHas key hitchhikers) TRUE
   | lookInNode | findSubnodeByKey key index
 - LEAFNODE items | setHas key items
@@ -568,9 +537,7 @@ abstype#(HSetMap k v)
 @ newRootNode | deleteRec config hhSetTF key NONE r
 # case (hsCaseNode newRootNode)
 - LEAFNODE leaves | if (setIsEmpty leaves) 0 newRootNode
-- INDEXNODE
-  index
-  hitchhikers
+- INDEXNODE index hitchhikers
   @ childNode | fromSingletonIndex index
   | Ifz childNode newRootNode
   | if (setIsEmpty hitchhikers) childNode
@@ -595,22 +562,21 @@ abstype#(HSetMap k v)
 
 =?= 1 | hsNull | hsEmpty twoThreeConfig
 =?= 0 | hsNull | hsSingleton twoThreeConfig 9
-=?= 0 | hsNull | hsInsert 8 | hsSingleton twoThreeConfig 9
-=?= 0 | hsNull | hsInsert 9 | hsSingleton twoThreeConfig 9
-=?= 1 | hsNull | hsDelete 9 | hsSingleton twoThreeConfig 9
+=?= 0
+    | hsNull | hsInsert 8 | hsSingleton twoThreeConfig 9
+=?= 0
+    | hsNull | hsInsert 9 | hsSingleton twoThreeConfig 9
+=?= 1
+    | hsNull | hsDelete 9 | hsSingleton twoThreeConfig 9
 
 = (getLeafList treeFun node)
 @ TREE_FUN(.. ) treeFun
 ^ _ hhEmpty node
 ? (go_openTreeFun hh node)
 # case (caseNode node)
-- LEAFNODE
-  leaves
-  @ !item (leafInsert leaves hh)
-  | CONS item NIL
-- INDEXNODE
-  [keys vals]
-  hitchhikers
+- LEAFNODE leaves @ !item (leafInsert leaves hh)
+                  | CONS item NIL
+- INDEXNODE [keys vals] hitchhikers
   @ !merged (hhMerge hitchhikers hh)
   @ splitHH | splitHitchhikersByKeys treeFun keys merged
   | listCat
@@ -630,14 +596,14 @@ abstype#(HSetMap k v)
 @ bmax | setMax b
 @ overlap | and lte-amin-bmax lte-bmin-amax
 @ int | setIntersect a b
-@ rest ^ Br
-         (cmp amax bmax)
-         _
-         0
-         ++ setlistIntersect as bo
-         ++ setlistIntersect as bs
-         ++ setlistIntersect ao bs
-| if | and overlap (not | setIsEmpty int) | CONS int rest
+@ rest
+  ^ Br (cmp amax bmax) _ 0
+    ++ setlistIntersect as bo
+    ++ setlistIntersect as bs
+    ++ setlistIntersect ao bs
+| if
+      | and overlap (not | setIsEmpty int)
+  | CONS int rest
 rest
 
 =?= ~[]
@@ -658,8 +624,7 @@ rest
 > Row (HSet k) > List (Set k)
 = (hsMultiIntersect setRow)
 | Ifz (len setRow) NIL
-| if
-  (eql 1 | len setRow)
+| if (eql 1 | len setRow)
   @ [_ node] | idx 0 setRow
   | getLeafList hhSetTF node
 @ mybNodes | map hsRawNode setRow
@@ -679,7 +644,9 @@ rest
 | listCase sets NIL
 & (x xs)
 @ xl | setLen x
-| if | gte num xl | lsDrop (sub num xl) xs
+| if
+      | gte num xl
+  | lsDrop (sub num xl) xs
 | CONS
 * setDrop num x
 * xs
@@ -692,7 +659,9 @@ rest
 | listCase sets NIL
 & (x xs)
 @ xl | setLen x
-| if | lth num xl | CONS (setTake num x) NIL
+| if
+      | lth num xl
+  | CONS (setTake num x) NIL
 | CONS
 * x
 * lsTake (sub num xl) xs
@@ -720,7 +689,8 @@ rest
 @ [keys nodes hh] node
 | INDEXNODE [keys nodes] hh
 
-> TreeConfig > Tab k (HSet Nat) > Tab k (Set a) > Tab k (HSet Nat)
+> TreeConfig
+  > Tab k (HSet Nat) > Tab k (Set a) > Tab k (HSet Nat)
 = (hsmLeafInsertImpl setConfig leaf hh)
 @ (alt new m)
   | SOME
@@ -742,10 +712,9 @@ rest
 = (hsmHHDeleteImpl k mybV sm)
 | maybeCase mybV (Die %cantDeleteNoValue)
 & v
-@ (update in)
-  | maybeCase in NONE
-  & set
-  | SOME | setDel v set
+@ (update in) | maybeCase in NONE
+              & set
+              | SOME | setDel v set
 | tabAlter update k sm
 
 (hhSetMapLength a)=(sumOf setLen | tabValsRow a)
@@ -768,12 +737,10 @@ rest
   ++ hsmHHDeleteImpl
 
 = (hsmInsert k v [mapConfig setConfig r])
-| Ifz
-  r
+| Ifz r
   @ raw | hsRawSingleton v
   @ leaf
-    
-            | tabSing k raw
+        | tabSing k raw
     ++ mapConfig
     ++ setConfig
     ++ MkPin leaf
@@ -781,24 +748,23 @@ rest
 @ hh | tabSing k (setSing v)
 @ !index | insertRec mapConfig tf hh r
 @ !fixed
-  
       | fixup mapConfig tf index
   ++ mapConfig
   ++ setConfig
   ++ fixed
 
 = (hsmInsertMany tabset [mapConfig setConfig r])
-| if | tabIsEmpty tabset [mapConfig setConfig r]
+| if
+    | tabIsEmpty tabset
+  [mapConfig setConfig r]
 @ tf | hhSetMapTF setConfig
 @ !index
-  | Ifz
-    r
+  | Ifz r
     @ TREE_CONFIG(.. ) mapConfig
     | splitLeafMany tf maxLeafItems
     | tabMapWithKey (k v)&(hsRawFromSet setConfig v) tabset
   | insertRec mapConfig tf tabset r
 @ !fixed
-  
       | fixup mapConfig tf index
   ++ mapConfig
   ++ setConfig
@@ -806,16 +772,14 @@ rest
 
 = (hsmDelete k v [mapConfig setConfig r])
 | Ifz r [mapConfig setConfig r]
-@ newRootNode | deleteRec mapConfig (hhSetMapTF setConfig) k (SOME v) r
+@ newRootNode
+  | deleteRec mapConfig (hhSetMapTF setConfig) k (SOME v) r
 # case (hsmCaseNode newRootNode)
-- LEAFNODE
-  leaves
+- LEAFNODE leaves
   ++ mapConfig
   ++ setConfig
   ++ if (tabIsEmpty leaves) 0 newRootNode
-- INDEXNODE
-  index
-  hitchhikers
+- INDEXNODE index hitchhikers
   @ childNode | fromSingletonIndex index
   | Ifz childNode [mapConfig setConfig newRootNode]
   @ base [mapConfig setConfig childNode]
@@ -828,37 +792,34 @@ rest
 ^ _ %[] r
 ? (lookInNode !hh node)
 # case (hsmCaseNode node)
-- INDEXNODE
-  children
-  hitchhikers
+- INDEXNODE children hitchhikers
   @ matched | fromSome %[] (tabLookup k hitchhikers)
   | lookInNode (setUnion hh matched) | findSubnodeByKey k children
-- LEAFNODE
-  items
-  : ret < **maybeCase (tabLookup k items) [setConfig (hsRawFromSet setConfig
-                                                      hh)]
+- LEAFNODE items
+  : ret
+    < **maybeCase (tabLookup k items) [setConfig (hsRawFromSet setConfig hh)]
   [setConfig (hsRawInsertMany hh setConfig ret)]
 
-^-^ 
+^-^
 ^-^ HSet HMap HSetMap
 ^-^ TreeConfig TREE_CONFIG
-^-^ 
-^-^ 
+^-^
+^-^
 ^-^ twoThreeConfig largeConfig
-^-^ 
-^-^ 
+^-^
+^-^
 ^-^ hmEmpty hmSingleton hmSize hmKeys hmInsert hmInsertMany hmDelete hmLookup
-^-^ 
-^-^ 
+^-^
+^-^
 ^-^ hsEmpty hsNull hsSingleton hsInsert hsInsertMany hsDelete hsToSet hsFromSet
 ^-^ hsMember hsUnion
 ^-^ hsMultiIntersect
-^-^ 
-^-^ 
+^-^
+^-^
 ^-^ lsDrop lsTake lsLen lsToList
-^-^ 
-^-^ 
+^-^
+^-^
 ^-^ hsmEmpty hsmInsert hsmInsertMany hsmDelete hsmLookup
 ^-^ tabSplitLT
-^-^ 
+^-^
 
