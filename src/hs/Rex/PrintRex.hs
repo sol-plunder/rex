@@ -311,8 +311,14 @@ nestDoc :: PrintConfig -> Color -> String -> [Rex] -> PDoc
 nestDoc cfg c r kids =
     let (open, close) = bracketChars c
     in case c of
-        CLEAR | cfgDebug cfg -> PCat (pdocText "«") (PCat (PDent (nestContentClear cfg r kids)) (pdocText "»"))
-              | otherwise    -> PDent (nestContentClear cfg r kids)
+        CLEAR -> case kids of
+            -- Single element with trailing rune: "4 +"
+            [k] | not (null r) ->
+                    let content = PCat (rexDoc cfg k) (PCat pdocSpace (cRune cfg r))
+                    in if cfgDebug cfg then PCat (pdocText "«") (PCat content (pdocText "»"))
+                       else content
+            _ -> if cfgDebug cfg then PCat (pdocText "«") (PCat (PDent (nestContentClear cfg r kids)) (pdocText "»"))
+                 else PDent (nestContentClear cfg r kids)
         _     -> case kids of
             []  -> PCat (cBracket cfg open) (cBracket cfg close)
             [k] -> -- Single element with trailing rune: (x +)
@@ -329,20 +335,28 @@ nestDocFlat :: PrintConfig -> Color -> String -> [Rex] -> PDoc
 nestDocFlat cfg c r kids =
     let (open, close) = bracketChars c
     in case c of
-        CLEAR | cfgDebug cfg -> PCat (pdocText "«") (PCat (nestContentFlat cfg r kids) (pdocText "»"))
-              | otherwise    -> nestContentFlat cfg r kids
+        CLEAR -> case kids of
+            -- Single element with trailing rune: "4 +"
+            [k] | not (null r) ->
+                    let content = PCat (rexDocFlat cfg k) (PCat pdocSpace (cRune cfg r))
+                    in if cfgDebug cfg then PCat (pdocText "«") (PCat content (pdocText "»"))
+                       else content
+            _ -> if cfgDebug cfg then PCat (pdocText "«") (PCat (nestContentFlat cfg r kids) (pdocText "»"))
+                 else nestContentFlat cfg r kids
         _     -> case kids of
             []  -> PCat (cBracket cfg open) (cBracket cfg close)
             [k] -> PCat (cBracket cfg open) (PCat (rexDocFlat cfg k) (PCat pdocSpace (PCat (cRune cfg r) (cBracket cfg close))))
             _   -> PCat (cBracket cfg open) (PCat (nestContentFlat cfg r kids) (cBracket cfg close))
 
 -- | Content for CLEAR nests: separators but no brackets, uses rexDoc
+-- Note: trailing rune for single-element is handled in nestDoc, not here
 nestContentClear :: PrintConfig -> String -> [Rex] -> PDoc
 nestContentClear _   _ []     = PEmpty
 nestContentClear cfg _ [k]    = rexDoc cfg k
 nestContentClear cfg r (k:ks) = PCat (rexDoc cfg k) (PCat (PCat pdocSpace (PCat (cRune cfg r) pdocSpace)) (nestContentClear cfg r ks))
 
 -- | Flat layout: children separated by " rune " (uses rexDocFlat for children)
+-- Note: trailing rune for single-element is handled in nestDocFlat, not here
 nestContentFlat :: PrintConfig -> String -> [Rex] -> PDoc
 nestContentFlat _   _ []     = PEmpty
 nestContentFlat cfg _ [k]    = rexDocFlat cfg k

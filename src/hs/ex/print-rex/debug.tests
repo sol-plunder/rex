@@ -117,5 +117,5 @@ a + b =
 === trailing rune after slot | 80 | debug
 (a b , 4 +)
 ---
-(«a b» , «4»)
+(«a b» , «4 +»)
 

@@ -95,10 +95,8 @@
 , + 3
 )
 
-=== trailing rune after slot normalizes | 80
+=== trailing rune after slot | 80
 (a b , 4 +)
----
-(a b , 4)
 
 === independent backstep groups in heir | 80
 + foo
