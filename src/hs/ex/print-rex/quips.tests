@@ -34,3 +34,43 @@ f 'x y
 (a, 'b, c)
 ---
 (a , 'b , c)
+
+=== multi-line quip aligned | 80
+foo = 'html{
+      <body>
+      }
+
+=== multi-line quip jagged normalizes | 80
+foo = 'html{
+  <body>
+}
+---
+foo = 'html{
+        <body>
+      }
+
+=== multi-line quip preserves relative indent | 80
+foo = 'html{
+  <body>
+    <p>Hi</p>
+  </body>
+}
+---
+foo = 'html{
+        <body>
+          <p>Hi</p>
+        </body>
+      }
+
+=== multi-line quip with blank line | 80
+foo = 'html{
+  <body>
+
+  </body>
+}
+---
+foo = 'html{
+        <body>
+
+        </body>
+      }

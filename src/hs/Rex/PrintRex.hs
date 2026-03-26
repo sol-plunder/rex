@@ -195,8 +195,23 @@ formatLeafMulti cfg TAPE s = formatTapeMulti cfg (lines s)
 formatLeafMulti cfg PAGE s = formatPageMulti cfg (lines s)
 formatLeafMulti cfg SPAN s = formatSpanMulti cfg (lines s)
 formatLeafMulti _   WORD s = pdocText s  -- shouldn't have newlines, but handle anyway
-formatLeafMulti cfg QUIP s = cQuip cfg s  -- shouldn't have newlines, but cyan
+formatLeafMulti cfg QUIP s = formatQuipMulti cfg (lines s)
 formatLeafMulti _   (BAD _) s = pdocText s  -- print BAD tokens as-is
+
+-- | Format multi-line QUIP: first line as-is, continuation lines aligned to '
+-- Uses PDent to capture the column of ' for alignment
+-- Blank lines are emitted without indentation
+formatQuipMulti :: PrintConfig -> [String] -> PDoc
+formatQuipMulti _   [] = PEmpty
+formatQuipMulti cfg (l:ls) =
+    PDent (PCat (cQuip cfg l) (quipRest ls))
+  where
+    quipRest [] = PEmpty
+    quipRest (x:xs) = PCat (quipLine x) (PCat (cQuip cfg x) (quipRest xs))
+
+    -- Use raw newline for blank lines to avoid indentation
+    quipLine "" = PText 1 "\n"
+    quipLine _  = PLine
 
 -- | Format multi-line SLUG: each line prefixed with "' "
 -- Uses PDent to capture the column for alignment

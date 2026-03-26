@@ -284,14 +284,68 @@ stripN _ s = s  -- non-space or end of string
 -- A quip (S_QUIP) is converted by extracting its underlying source
 -- text (using treeOff/treeLen relative to the block's source slice)
 -- and producing a LEAF QUIP.
+--
+-- For multi-line quips, we normalize indentation by stripping the minimum
+-- indent from all non-empty continuation lines. This allows "jagged" input:
+--
+--   foo = 'html{
+--     <body>
+--   }
+--
+-- to be equivalent to the canonical form:
+--
+--   foo = 'html{
+--         <body>
+--         }
+--
+-- Blank lines are ignored when computing minimum indent.
 
 quipToRex :: String -> Int -> Tree -> Rex
 quipToRex src blockOff tree@(Tree S_QUIP sp _) =
     let qoff = Tr.treeOff tree
         qlen = Tr.treeLen tree
         s = take qlen (drop (qoff - blockOff) src)
-    in LEAF sp QUIP s
+        s' = normalizeQuipIndent s
+    in LEAF sp QUIP s'
 quipToRex _ _ t = error $ "quipToRex: not a quip: " ++ show (treeShape t)
+
+-- | Normalize indentation for multi-line quips.
+-- Strips the minimum indent from all non-empty continuation lines, so that
+-- the least-indented line ends up at column 0 (relative to the quip start).
+-- This allows "jagged" input where lines are typed at column 0 to normalize
+-- to the same representation as properly-indented input.
+normalizeQuipIndent :: String -> String
+normalizeQuipIndent s
+    | '\n' `notElem` s = s  -- single-line, no change
+    | otherwise =
+        let (firstLine, rest) = break (== '\n') s
+            contLines = splitLines (drop 1 rest)  -- drop the '\n'
+            minIndent = minimum (maxBound : map lineIndent (filter (not . isBlankLine) contLines))
+            stripped = map (stripIndent minIndent) contLines
+        in firstLine ++ concatMap ('\n':) stripped
+
+-- | Split a string into lines, preserving empty lines
+splitLines :: String -> [String]
+splitLines "" = []
+splitLines s  = let (l, rest) = break (== '\n') s
+                in l : case rest of
+                         ""     -> []
+                         (_:rs) -> splitLines rs
+
+-- | Count leading spaces in a line
+lineIndent :: String -> Int
+lineIndent = length . takeWhile (== ' ')
+
+-- | Check if a line is blank (empty or only whitespace)
+isBlankLine :: String -> Bool
+isBlankLine = all (`elem` " \t")
+
+-- | Strip n spaces from the beginning of a line
+stripIndent :: Int -> String -> String
+stripIndent 0 s = s
+stripIndent n s = case s of
+    (' ':rest) -> stripIndent (n-1) rest
+    _          -> s  -- fewer spaces than expected, or non-space char
 
 
 -- Top-Level Conversion --------------------------------------------------------
