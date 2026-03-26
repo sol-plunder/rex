@@ -25,4 +25,4 @@ nix develop --command cabal test
 nix develop --command cabal run rex -- <command>
 ```
 
-Available commands: `lex`, `tree`, `rex`, `print`, `pretty`, `pretty-rex`, `test`, `print-test`, `rex-test`
+Available commands: `lex`, `tree`, `rex`, `check`, `pretty`, `rex-test`

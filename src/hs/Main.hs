@@ -18,22 +18,23 @@ usage = unlines
     [ "Usage: rex <command>"
     , ""
     , "Commands:"
-    , "  lex         Tokenize stdin and print token stream"
-    , "  tree        Parse stdin and print structural tree"
-    , "  rex         Parse stdin and print Rex IR"
-    , "  check       Parse stdin and report any errors (BAD tokens)"
-    , "  pretty-rex  Parse stdin and pretty-print using layout engine"
-    , "  rex-test    Run Rex pretty-printer test suite"
+    , "  lex              Tokenize stdin and print token stream"
+    , "  tree             Parse stdin and print structural tree"
+    , "  rex              Parse stdin and print Rex IR"
+    , "  check            Parse stdin and report any errors (BAD tokens)"
+    , "  pretty [--debug] Parse stdin and pretty-print using layout engine"
+    , "  rex-test         Run Rex pretty-printer test suite"
     ]
 
 main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ["lex"]        -> Lex.lexMain
-        ["tree"]       -> Tree2.treeMain
-        ["rex"]        -> Rex.rexMain
-        ["check"]      -> Rex.checkMain
-        ["pretty-rex"] -> PrintRex.prettyRexMain
-        ["rex-test"]   -> PrintRexTest.printRexTestMain
-        _              -> hPutStrLn stderr usage >> exitFailure
+        ["lex"]              -> Lex.lexMain
+        ["tree"]             -> Tree2.treeMain
+        ["rex"]              -> Rex.rexMain
+        ["check"]            -> Rex.checkMain
+        ["pretty"]           -> PrintRex.prettyRexMain False
+        ["pretty", "--debug"] -> PrintRex.prettyRexMain True
+        ["rex-test"]         -> PrintRexTest.printRexTestMain
+        _                    -> hPutStrLn stderr usage >> exitFailure

@@ -376,19 +376,28 @@ prefDoc cfg r child
 -- TYTE: Tight infix like x.y, a:b:c ---------------------------------------------
 --
 -- Children concatenated with rune separator (no spaces).
+-- In debug mode, wrap with ⟪⟫ markers.
 
 tyteDoc :: PrintConfig -> String -> [Rex] -> PDoc
 tyteDoc cfg r kids =
-    pdocIntersperseFun (\x y -> PCat x (PCat (cRune cfg r) y)) (map (rexDocTight cfg) kids)
+    let inner = pdocIntersperseFun (\x y -> PCat x (PCat (cRune cfg r) y)) (map (rexDocTight cfg) kids)
+    in if cfgDebug cfg
+       then PCat (pdocText "⟪") (PCat inner (pdocText "⟫"))
+       else inner
 
 
 -- JUXT: Tight juxtaposition like f(x), f(x)[1] ----------------------------------
 --
 -- Children concatenated directly (no spaces). Complex children get wrapped
 -- in parens.
+-- In debug mode, wrap with ⟪⟫ markers.
 
 juxtDoc :: PrintConfig -> [Rex] -> PDoc
-juxtDoc cfg = foldr (PCat . rexDocTight cfg) PEmpty
+juxtDoc cfg kids =
+    let inner = foldr (PCat . rexDocTight cfg) PEmpty kids
+    in if cfgDebug cfg
+       then PCat (pdocText "⟪") (PCat inner (pdocText "⟫"))
+       else inner
 
 
 -- OPEN: Rune poems like + a b c -------------------------------------------------
@@ -541,10 +550,11 @@ bracketChars CLEAR = (' ', ' ')  -- unused; CLEAR is handled above
 -- | Read Rex source from stdin, parse to Rex, and pretty-print using
 -- the PDoc layout engine. Each top-level input is separated by a blank line.
 -- Uses colors when stdout is a terminal.
-prettyRexMain :: IO ()
-prettyRexMain = do
+prettyRexMain :: Bool -> IO ()
+prettyRexMain debug = do
     isTty <- hIsTerminalDevice stdout
     let colors = if isTty then BoldColors else NoColors
+    let cfg = PrintConfig colors debug
     src <- getContents
     -- Force full input before parsing (avoid lazy IO issues with interactive input)
     let !_ = length src
@@ -553,6 +563,6 @@ prettyRexMain = do
         case rexFromBlockTree slice tree of
             Nothing  -> pure ()
             Just rex -> do
-                putStrLn (printRexColor colors 80 rex)
+                putStrLn (printRexWith cfg 80 rex)
                 putStrLn ""
         ) results
