@@ -108,3 +108,31 @@
 ---
 (a b , 4)
 
+=== independent backstep groups in heir | 80
++ foo
+      + a
+      + b
+  + c
+  + d
++ bar
+      + p
+      + q
+  + r
+  + s
++ zaz
+
+=== backstep groups separated by closed | 80
++ top
+      + a
+  + b
+  x
+      + c
+  + d
+---
++ top
+      + a
+  + b
+  x
+  + c
+  + d
+

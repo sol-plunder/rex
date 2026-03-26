@@ -3,8 +3,8 @@
 -- See LICENSE for full terms.
 --
 -- A pretty-printer document layout system in the vein of Wadler's
--- "A Pretty Printer", extended with PBACKSTEP to handle the
--- indentation requirements of rune poems.
+-- "A Pretty Printer", extended with PStaircase to handle the
+-- reverse-staircase indentation pattern of rune poems.
 --
 -- Translated from the Sire implementation in the Plunder codebase,
 -- which was designed and implemented by Iceman (Elliot Glaysher).
@@ -33,7 +33,7 @@ module Rex.PDoc
     , pdocDquotes
     , pdocSpace
     , pdocSpaceOrLine
-    , pdocBackstep
+    , pdocStaircase
     , pdocNoFit
     , pdocIntersperse
     , pdocIntersperseFun
@@ -55,7 +55,11 @@ data PDoc
     | PDent  PDoc               -- ^ set indent level to current column
     | PChoice PDoc PDoc         -- ^ try left; fall back to right if it doesn't fit
     | PNoFit PDoc               -- ^ never fits in PChoice; forces fallback to right
-    | PBackstep !Int PDoc PDoc  -- ^ use right's indent to inform left's indent
+    | PStaircase !Int [PDoc]    -- ^ reverse-staircase layout for open children
+                                -- Int = step size (typically 4)
+                                -- Items are rendered in reverse-depth order:
+                                -- first at deepest indent, last at base indent.
+                                -- Each item gets PLine before it.
     deriving (Show)
 
 
@@ -125,11 +129,21 @@ pdocRenderSDoc w =
             let (bs, rest) = best n k (DLCons i x ds)
             in (bs, SNoFit rest)
 
-        PBackstep b x y ->
-            let (backstep, ylist) = best n k (DLCons i y ds)
-                ip                = i + backstep + b
-                (_, xlist)        = best n k (DLSCons ip x backstep ylist)
-            in (backstep + b, xlist)
+        PStaircase step items ->
+            -- Render items in staircase pattern, first item deepest.
+            -- ALL items get a newline before them at their computed indent.
+            -- Returns backstep=0 to prevent leakage to outer context.
+            let totalSteps = (length items - 1) * step
+                buildDoc [] _depth = best n k ds
+                buildDoc [item] _depth =
+                    -- Last item at base indent
+                    best n k (DLCons i (PCat PLine item) ds)
+                buildDoc (item:rest) depth =
+                    let itemIndent = i + depth
+                        (_, restSDoc) = buildDoc rest (depth - step)
+                        -- Newline at itemIndent, then item, then rest
+                    in best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
+            in (0, snd (buildDoc items totalSteps))
 
     best n k (DLSCons i d bs ss) = case d of
         PEmpty ->
@@ -159,11 +173,20 @@ pdocRenderSDoc w =
             let (_, rest) = best n k (DLSCons i x bs ss)
             in (bs, SNoFit rest)
 
-        PBackstep b x y ->
-            let (backstep, ylist) = best n k (DLSCons i y bs ss)
-                ip                = i + backstep + b
-                (_, xlist)        = best n k (DLSCons ip x backstep ylist)
-            in (backstep + b, xlist)
+        PStaircase step items ->
+            -- Inside DLSCons: render staircase, then continue with outer context
+            -- ALL items get newlines before them
+            let totalSteps = (length items - 1) * step
+                buildDoc [] _depth = (bs, ss)
+                buildDoc [item] _depth =
+                    -- Last item at base indent
+                    let (_, rest) = best n k (DLSCons i (PCat PLine item) bs ss)
+                    in (bs, rest)
+                buildDoc (item:rest) depth =
+                    let itemIndent = i + depth
+                        (_, restSDoc) = buildDoc rest (depth - step)
+                    in (bs, snd (best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))))
+            in buildDoc items totalSteps
 
 -- | Choose the first rendered document if it fits within the page width,
 -- otherwise use the second.
@@ -245,11 +268,14 @@ pdocSpace = PChar ' '
 pdocSpaceOrLine :: PDoc -> PDoc -> PDoc
 pdocSpaceOrLine x y = PCat x (PChoice (PCat pdocSpace y) (PCat PLine y))
 
--- | The backstep combinator. Renders y first to determine its indentation,
--- then uses that to set the indentation for x. Used to align sibling rune
--- poems correctly.
-pdocBackstep :: PDoc -> PDoc -> PDoc
-pdocBackstep x y = PBackstep 4 (PCat PLine x) y
+-- | Create a reverse-staircase layout for a list of open children.
+-- First item appears at deepest indent, last at base indent.
+-- ALL items get newlines before them (PStaircase handles this).
+-- Returns backstep=0, so multiple staircases don't leak into each other.
+pdocStaircase :: [PDoc] -> PDoc
+pdocStaircase []    = PEmpty
+pdocStaircase [x]   = PCat PLine x  -- single item still needs newline
+pdocStaircase items = PStaircase 4 items
 
 -- | Mark a document as "never fits" for PChoice. When this appears in the
 -- left branch of a PChoice, it forces the choice to use the right branch.

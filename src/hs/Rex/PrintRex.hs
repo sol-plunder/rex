@@ -458,20 +458,44 @@ openDoc cfg r kids =
 openChildrenFlat :: PrintConfig -> [Rex] -> PDoc
 openChildrenFlat cfg = pdocIntersperse pdocSpace . map (rexDoc cfg)
 
+-- | Render children in vertical layout, grouping consecutive open children
+-- into staircases that don't leak backstep between groups.
 openChildrenVertical :: PrintConfig -> [Rex] -> PDoc
-openChildrenVertical _   []     = PEmpty
-openChildrenVertical cfg [k]    = rexDoc cfg k
-openChildrenVertical cfg (k:ks)
-    | isOpenRex k = pdocBackstep (rexDoc cfg k) (openRestAfterOpen cfg ks)
-    | otherwise   = PCat (rexDoc cfg k) (PCat PLine (openChildrenVertical cfg ks))
+openChildrenVertical _   []   = PEmpty
+openChildrenVertical cfg [k]  = rexDoc cfg k  -- single child: no staircase, inline
+openChildrenVertical cfg kids = renderGroups (groupChildren kids)
+  where
+    -- Group children into runs of closed and open
+    groupChildren :: [Rex] -> [ChildGroup]
+    groupChildren [] = []
+    groupChildren xs =
+        let (closed, rest1) = span (not . isOpenRex) xs
+            (open,   rest2) = span isOpenRex rest1
+        in case (closed, open) of
+            ([], []) -> []
+            (cs, []) -> [ClosedGroup cs]
+            ([], os) -> OpenGroup os : groupChildren rest2
+            (cs, os) -> ClosedGroup cs : OpenGroup os : groupChildren rest2
 
--- After an open sibling, every following child needs PLine before it.
-openRestAfterOpen :: PrintConfig -> [Rex] -> PDoc
-openRestAfterOpen _   []     = PEmpty
-openRestAfterOpen cfg [k]    = PCat PLine (rexDoc cfg k)
-openRestAfterOpen cfg (k:ks)
-    | isOpenRex k = pdocBackstep (rexDoc cfg k) (openRestAfterOpen cfg ks)
-    | otherwise   = PCat PLine (PCat (rexDoc cfg k) (openRestAfterOpen cfg ks))
+    -- Render groups. PLine between closed groups, but OpenGroup handles its own newlines.
+    renderGroups :: [ChildGroup] -> PDoc
+    renderGroups []     = PEmpty
+    renderGroups [g]    = renderGroup g
+    renderGroups (g:gs) = case gs of
+        (OpenGroup _ : _) -> PCat (renderGroup g) (renderGroups gs)  -- open group has own newlines
+        _                 -> PCat (renderGroup g) (PCat PLine (renderGroups gs))
+
+    -- Render a single group
+    renderGroup :: ChildGroup -> PDoc
+    renderGroup (ClosedGroup cs) =
+        pdocIntersperseFun (\x y -> PCat x (PCat PLine y)) (map (rexDoc cfg) cs)
+    renderGroup (OpenGroup os) =
+        pdocStaircase (map (rexDoc cfg) os)
+
+-- | Classification of children for grouping
+data ChildGroup
+    = ClosedGroup [Rex]  -- consecutive closed children
+    | OpenGroup   [Rex]  -- consecutive open children
 
 
 -- HEIR: Vertical siblings at same column ----------------------------------------
