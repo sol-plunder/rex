@@ -390,14 +390,14 @@ tyteDoc cfg r kids =
 --
 -- Children concatenated directly (no spaces). Complex children get wrapped
 -- in parens.
--- In debug mode, wrap with ⟪⟫ markers.
+-- In debug mode, wrap with ⟪⟫ markers and separate children with ·.
 
 juxtDoc :: PrintConfig -> [Rex] -> PDoc
 juxtDoc cfg kids =
-    let inner = foldr (PCat . rexDocTight cfg) PEmpty kids
-    in if cfgDebug cfg
-       then PCat (pdocText "⟪") (PCat inner (pdocText "⟫"))
-       else inner
+    if cfgDebug cfg
+    then let inner = pdocIntersperse (pdocText "·") (map (rexDocTight cfg) kids)
+         in PCat (pdocText "⟪") (PCat inner (pdocText "⟫"))
+    else foldr (PCat . rexDocTight cfg) PEmpty kids
 
 
 -- OPEN: Rune poems like + a b c -------------------------------------------------
