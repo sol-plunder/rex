@@ -145,6 +145,7 @@ downstream consumers.
 
 - [rex-syntax-guide.md](doc/rex-syntax-guide.md) — introduction to the Rex notation for language users and designers
 - [examples.md](doc/examples.md) — annotated Rex examples covering the full range of the notation
+- [docstrings.md](doc/docstrings.md) — how slugs work as docstrings attached to definitions
 - [hoon-comparison.md](doc/hoon-comparison.md) — Rex compared to Hoon, with side-by-side examples
 - [nix-comparison.md](doc/nix-comparison.md) — Nix configuration syntax mapped to Rex
 - [c-comparison.md](doc/c-comparison.md) — C code mapped to Rex

@@ -1,0 +1,113 @@
+-- DOCSTRINGS: slugs participating in HEIR forms and related cases
+
+-- Slug followed by quip on next line (not a continuation)
+=== slug then quip | 80
+' This is a slug
+'quotedForm
+
+-- Slug and quip in same block (slug forces vertical layout)
+=== slug then quip same block | 80
+= foo
+  ' docstring
+  'quip
+
+-- Multiple definitions with docstrings (separate blocks)
+=== multiple docstrings | 80
+' First function
+= first 1
+
+' Second function
+= second 2
+
+-- Slug as child in poem (slug forces vertical)
+=== slug in poem | 80
+= foo ' comment bar
+---
+= foo
+  ' comment bar
+
+-- Slug in poem with actual children after it
+=== slug in poem with children | 80
+= foo
+  ' docstring
+  , child1
+  , child2
+
+-- Multi-line slug (consecutive lines at same column)
+=== multiline slug | 80
+' Line one
+' Line two
+' Line three
+
+-- Consecutive slugs in heir get ') separator to prevent re-parsing as one slug
+=== consecutive slugs different cols | 80
+' First slug
+  ' Second slug indented
+---
+' First slug
+')
+' Second slug indented
+
+-- Slug followed by definition forms HEIR (stays vertical)
+=== slug before def same block | 80
+' docs
+= foo 42
+
+-- Nested slug in poem with actual nested structure
+=== nested slug | 80
+= outer
+  ' inner docstring
+  = inner
+    , field1
+    , field2
+
+-- Slug and quip forced vertical by narrow width
+=== slug quip narrow | 20
+= foo
+  ' docstring
+  'quip
+
+-- Docstring forced vertical by narrow width
+=== docstring narrow | 15
+' docs
+= foo 42
+
+-- Multi-line slug then definition (HEIR)
+=== multiline slug heir | 80
+' First line
+' Second line
+= definition 123
+
+-- Slug absorbs trailing rune, child becomes heir sibling
+=== slug trailing rune | 80
+' comment -
+  child
+---
+' comment -
+child
+
+-- Docstring before nested structure (collapses inline)
+=== docstring before nested | 80
+' Module documentation
+= module
+  | export func
+---
+' Module documentation
+= module | export func
+
+-- Quip immediately after slug at different column (becomes heir sibling)
+=== quip after slug different col | 80
+' slug at col 1
+  'quotedWord
+---
+' slug at col 1
+'quotedWord
+
+-- Multiple heirs with docstrings
+=== multiple heirs docstrings | 80
+' First
+= a 1
+' Second
+= b 2
+' Third
+= c 3

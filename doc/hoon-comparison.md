@@ -41,13 +41,16 @@ The same code in Rex:
   |=  [=ship life='@ud =path dat=($@ '~ |cask)]
    (jam '+<)
 ++  sign  sigh:as:(crypto_core.ames_state)
+ '
 ++  veri_fra
   |=  [=path fra='@ud dat='@ux sig='@]
    (veri sig (jam path fra dat))
+ '
 ++  veri
   |=  [sig='@ dat='@]
   ^-  ?
    (safe:as:(com:nu:crub:crypto public_key.peer_state) sig dat)
+ '
 ++  meri
   |=  [pax=path sig='@ dat=($@ '~ |cask)]
    (veri sig (mess her life.peer_state pax dat))
@@ -61,9 +64,9 @@ Most things translate nearly verbatim. The differences are small but systematic.
 `crypto-core`). In Rex, `-` is a rune character, so identifiers use `_`
 instead (`peer_state`, `crypto_core`).
 
-**Comments.** Hoon uses `::` for line comments. In Rex, comments use `')`,
-`']`, or `'}`. The `::` separators in the Hoon original have no equivalent
-in the Rex translation and are simply omitted.
+**Comments.** Hoon uses `::` for line comments. In Rex, comments use
+`')`, `']`, or `'}`, but you can write docstrings inline in rune poems
+using slug-strings (`'`), which replace the `::` convention from Hoon.
 
 **Sigil literals.** Hoon has a large family of irregular syntax forms for
 literals prefixed with sigils: `@ud`, `~`, `+<`, `$@`. In Rex these become

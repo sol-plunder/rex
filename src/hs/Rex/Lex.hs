@@ -97,8 +97,8 @@ tick tlin tcol to rest =
     [] -> ([Tok QUIP tlin tcol tickOff 1 "'"], [], tcol, to, tlin)
 
     c:_ | c == ' ' || c == '\n' ->
-            let (tok, rest', lin') = lexSlug tlin tcol tickOff rest
-            in ([tok], rest', tcol + len tok, tickOff + len tok, lin')
+            let (tok, rest', consumed, lin') = lexSlug tlin tcol tickOff rest
+            in ([tok], rest', tcol + len tok, tickOff + consumed, lin')
         | c == '\'' ->
             let (qs, body0) = span (=='\'') rest
                 n           = 1 + length qs
@@ -153,26 +153,34 @@ lexUgly tlin tcol tokOff n col0 off0 xs =
                 in (pending ++ ch:a, b, closed, k, o, l)
 
 -- SLUG strings
-lexSlug :: Int -> Int -> Int -> String -> (Tok, String, Int)
+-- Returns (token, remaining_string, bytes_consumed, end_line)
+lexSlug :: Int -> Int -> Int -> String -> (Tok, String, Int, Int)
 lexSlug tlin tcol tokOff rest =
-  let (raw, rest', linEnd) = go "'" tlin rest
-  in (Tok SLUG tlin tcol tokOff (length raw) raw, rest', linEnd)
+  let (raw, rest', consumed, linEnd) = go "'" 1 tlin rest  -- 1 for the initial tick
+  in (Tok SLUG tlin tcol tokOff (length raw) raw, rest', consumed, linEnd)
  where
-  go acc lin' xs =
+  -- acc = accumulated content, consumed = bytes consumed from input, lin' = current line
+  go acc consumed lin' xs =
     let (line, rest1) = break (== '\n') xs
         acc'          = acc ++ line
+        consumed'     = consumed + length line
     in case rest1 of
-         []        -> (acc', [], lin')
+         []        -> (acc', [], consumed', lin')
          ('\n':rs) ->
            case shouldContinue tcol rs of
-             Just rs' -> go (acc' ++ "\n" ++ "'") (lin'+1) rs'
-             Nothing  -> (acc', '\n':rs, lin')
+             Just (skip, rs') -> go (acc' ++ "\n" ++ "'") (consumed' + 1 + skip + 1) (lin'+1) rs'
+                                 -- +1 for newline, +skip for spaces, +1 for tick
+             Nothing  -> (acc', '\n':rs, consumed', lin')
 
+  -- Returns Just (spaces_skipped, rest_after_tick) or Nothing
   shouldContinue t s =
     let (sp, rest2) = span (== ' ') s
         col'        = 1 + length sp
     in case rest2 of
-         ('\'':xs) | col' == t -> Just xs
+         -- Only continue if ' is followed by space or newline (slug), not other chars (quip)
+         ('\'':' ':xs) | col' == t -> Just (length sp, ' ':xs)
+         ('\'':'\n':xs) | col' == t -> Just (length sp, '\n':xs)
+         ('\'':xs) | col' == t, null xs -> Just (length sp, xs)
          _                     -> Nothing
 
 
@@ -182,16 +190,17 @@ data BMode = OUTSIDE | SINGLE_LN | BLK
   deriving (Eq, Show)
 
 bsplit :: [Tok] -> [Tok]
-bsplit = go OUTSIDE [] 0 False
+bsplit = go OUTSIDE [] 0 False False
   where
-    go :: BMode -> [Char] -> Int -> Bool -> [Tok] -> [Tok]
-    go _ _ _ _ [] = []
-    go mode stk eol wasRune (t:ts) =
+    go :: BMode -> [Char] -> Int -> Bool -> Bool -> [Tok] -> [Tok]
+    go _ _ _ _ _ [] = []
+    go mode stk eol wasRune wasSlug (t:ts) =
       let (t1, stk1) = stepNest stk t
           eol1       = if ty t1 == EOL then eol + 1 else 0
-          (out, mode1) = stepMode mode stk1 eol1 wasRune t1
+          (out, mode1) = stepMode mode stk1 eol1 wasRune wasSlug t1
           wasRune'   = ty t1 == CLMP || ty t1 == FREE
-      in out ++ go mode1 stk1 eol1 wasRune' ts
+          wasSlug'   = ty t1 == SLUG
+      in out ++ go mode1 stk1 eol1 wasRune' wasSlug' ts
 
     stepNest :: [Char] -> Tok -> (Tok, [Char])
     stepNest stk t
@@ -204,8 +213,8 @@ bsplit = go OUTSIDE [] 0 False
             _                    -> (t { ty = BAD }, stk)
       | otherwise = (t, stk)
 
-    stepMode :: BMode -> [Char] -> Int -> Bool -> Tok -> ([Tok], BMode)
-    stepMode mode stk eol wasRune t =
+    stepMode :: BMode -> [Char] -> Int -> Bool -> Bool -> Tok -> ([Tok], BMode)
+    stepMode mode stk eol wasRune wasSlug t =
       case mode of
         OUTSIDE ->
           let mode' | ty t == FREE     = BLK
@@ -215,7 +224,8 @@ bsplit = go OUTSIDE [] 0 False
 
         SINGLE_LN
           | null stk && ty t == EOL && eol == 1 ->
-              if wasRune then ([t], BLK)
+              -- Treat SLUG like trailing rune: continue into BLK mode
+              if wasRune || wasSlug then ([t], BLK)
               else ([Tok EOB (lin t) 0 (off t) 0 ""], OUTSIDE)
           | otherwise -> ([t], SINGLE_LN)
 

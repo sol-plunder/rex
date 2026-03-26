@@ -495,7 +495,14 @@ convertPoem src blockOff sp pos (N_RUNE _ r : rest) =
     in case heirNodes of
          [] -> open
          _  -> mkHeir sp (open : concatMap (flattenHeir . convertNode src blockOff) heirNodes)
-convertPoem _ _ _ _ _ = error "poem must start with a rune"
+-- Poem starting with SLUG: flatten everything into a HEIR
+convertPoem src blockOff sp pos (N_LEAF leafSp lf : rest) =
+    let slug = leafToRex leafSp lf
+        -- Flatten all children and heir nodes together
+        allNodes = rest
+        flattened = concatMap (flattenHeir . convertNode src blockOff) allNodes
+    in mkHeir sp (slug : flattened)
+convertPoem _ _ _ _ _ = error "poem must start with a rune or leaf"
 
 splitHeir :: Int -> [Node] -> ([Node], [Node])
 splitHeir pos = go []

@@ -20,9 +20,9 @@ Before working on this codebase, review the notes in the `note/` directory:
 ## Build Commands
 
 ```bash
-nix develop --command cabal build
-nix develop --command cabal test
-nix develop --command cabal run rex -- <command>
+cabal build
+cabal test
+cabal run rex -- <command>
 ```
 
 Available commands: `lex`, `tree`, `rex`, `check`, `pretty`, `rex-test`

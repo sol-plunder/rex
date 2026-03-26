@@ -285,6 +285,11 @@ stepPoem tok ctx rest
 
 stepSpaced :: Tok -> Ctx -> Stack -> Stack
 stepSpaced tok ctx rest = case ty tok of
+    SLUG ->
+        -- Slug starts a poem context at its column, like a FREE rune
+        pushInto (mkLeaf tok) (lin tok) (off tok) (tokEnd tok)
+         $ SE_CTX (mkCtx CT_POEM (lin tok) (col tok) (off tok))
+         : closeClump (SE_CTX ctx : rest)
     _ | isLeafTy (ty tok) ->
         pushLeaf (mkLeaf tok) (lin tok) (off tok) (tokEnd tok) (SE_CTX ctx : rest)
     CLMP ->

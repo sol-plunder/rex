@@ -159,14 +159,17 @@ leafDoc cfg shape s
     | cfgDebug cfg = case shape of
         WORD    -> pdocText s
         QUIP    -> cQuip cfg s  -- quips in cyan
-        SLUG    -> formatSlugMulti cfg (lines s)
+        SLUG    -> pdocNoFit (formatSlugMulti cfg (lines s))
         BAD _   -> pdocText s
         -- CORD, TAPE, SPAN, PAGE all become slugs in debug mode
-        _       -> formatSlugMulti cfg (lines s)
+        _       -> pdocNoFit (formatSlugMulti cfg (lines s))
     -- Normal mode
     | otherwise = case shape of
         PAGE -> formatPageMulti cfg (lines s)  -- PAGE always uses block form
         TAPE -> formatTapeMulti cfg (lines s)  -- TAPE always uses block form
+        -- SLUG never fits inline, always ends with newline
+        SLUG | '\n' `elem` s -> pdocNoFit (formatSlugMulti cfg (lines s))
+             | otherwise     -> pdocNoFit (formatSlugSingle cfg s)
         _    | '\n' `notElem` s -> formatLeafSingle cfg shape s
              | otherwise        -> formatLeafMulti cfg shape s
 
@@ -212,6 +215,11 @@ formatQuipMulti cfg (l:ls) =
     -- Use raw newline for blank lines to avoid indentation
     quipLine "" = PText 1 "\n"
     quipLine _  = PLine
+
+-- | Format single-line SLUG: "' " prefix
+-- Slugs never fit inline, so this is wrapped in pdocNoFit at the call site
+formatSlugSingle :: PrintConfig -> String -> PDoc
+formatSlugSingle cfg s = PCat (cString cfg "' ") (cString cfg s)
 
 -- | Format multi-line SLUG: each line prefixed with "' "
 -- Uses PDent to capture the column for alignment
@@ -479,12 +487,18 @@ heirDoc cfg (k:ks) =
     let firstRuneLen = case k of
             OPEN _ r _ -> length r
             _          -> 1
-        inner = PDent (PCat (rexDoc cfg k) (heirRest cfg firstRuneLen ks))
+        -- Insert ') separator if first two elements are both SLUGs
+        firstSep = case (k, ks) of
+            (LEAF _ SLUG _, LEAF _ SLUG _ : _) -> PCat PLine (pdocText "')")
+            _ -> PEmpty
+        inner = PDent (PCat (rexDoc cfg k) (PCat firstSep (heirRest cfg firstRuneLen ks)))
     in if cfgDebug cfg
        then PCat (pdocText "⟨") (PCat inner (pdocText "⟩"))
        else inner
 
 -- | Render remaining heir elements with alignment based on first rune
+-- If two consecutive SLUGs appear, insert ') between them to prevent
+-- them from being re-parsed as a single multi-line slug.
 heirRest :: PrintConfig -> Int -> [Rex] -> PDoc
 heirRest _   _            []     = PEmpty
 heirRest cfg firstRuneLen (k:ks) =
@@ -493,7 +507,11 @@ heirRest cfg firstRuneLen (k:ks) =
             _          -> 1
         padding = max 0 (firstRuneLen - currentRuneLen)
         pad = if padding > 0 then pdocText (replicate padding ' ') else PEmpty
-    in PCat PLine (PCat pad (PCat (rexDoc cfg k) (heirRest cfg firstRuneLen ks)))
+        -- Insert ') separator if next element is also a SLUG
+        sep = case (k, ks) of
+            (LEAF _ SLUG _, LEAF _ SLUG _ : _) -> PCat PLine (pdocText "')")
+            _ -> PEmpty
+    in PCat PLine (PCat pad (PCat (rexDoc cfg k) (PCat sep (heirRest cfg firstRuneLen ks))))
 
 
 -- BLOC: Block forms like f =\n  a\n  b ------------------------------------------

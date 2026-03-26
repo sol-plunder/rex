@@ -89,6 +89,10 @@ line two
 === nested slug | 80
 | foo | bar - ' line one
               ' line two
+---
+| foo | bar
+        - ' line one
+          ' line two
 
 === nested page | 80
 | foo | bar - '''
