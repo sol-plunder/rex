@@ -101,6 +101,12 @@ cStringChar cfg c = case cfgColors cfg of
     NoColors   -> PChar c
     BoldColors -> PText 1 ("\x1b[32m" ++ [c] ++ "\x1b[0m")
 
+-- | Color a quip (cyan)
+cQuip :: PrintConfig -> String -> PDoc
+cQuip cfg s = case cfgColors cfg of
+    NoColors   -> pdocText s
+    BoldColors -> colorText BoldColors "36" s
+
 
 -- Top-level Rex Dispatch -------------------------------------------------------
 
@@ -152,7 +158,7 @@ leafDoc cfg shape s
     -- In debug mode, all strings become slugs
     | cfgDebug cfg = case shape of
         WORD    -> pdocText s
-        QUIP    -> pdocText s  -- quips keep their format
+        QUIP    -> cQuip cfg s  -- quips in cyan
         SLUG    -> formatSlugMulti cfg (lines s)
         BAD _   -> pdocText s
         -- CORD, TAPE, SPAN, PAGE all become slugs in debug mode
@@ -167,7 +173,7 @@ leafDoc cfg shape s
 -- | Format a single-line leaf with appropriate quoting
 formatLeafSingle :: PrintConfig -> LeafShape -> String -> PDoc
 formatLeafSingle _   WORD s = pdocText s
-formatLeafSingle _   QUIP s = pdocText s  -- quips already have their quote
+formatLeafSingle cfg QUIP s = cQuip cfg s  -- quips in cyan
 formatLeafSingle cfg CORD s = PCat (cStringChar cfg '"') (PCat (cString cfg (escapeQuotes s)) (cStringChar cfg '"'))
 formatLeafSingle _   TAPE _ = error "TAPE should use formatTapeMulti"
 formatLeafSingle _   PAGE _ = error "PAGE should use formatPageMulti"
@@ -189,7 +195,7 @@ formatLeafMulti cfg TAPE s = formatTapeMulti cfg (lines s)
 formatLeafMulti cfg PAGE s = formatPageMulti cfg (lines s)
 formatLeafMulti cfg SPAN s = formatSpanMulti cfg (lines s)
 formatLeafMulti _   WORD s = pdocText s  -- shouldn't have newlines, but handle anyway
-formatLeafMulti _   QUIP s = pdocText s  -- shouldn't have newlines
+formatLeafMulti cfg QUIP s = cQuip cfg s  -- shouldn't have newlines, but cyan
 formatLeafMulti _   (BAD _) s = pdocText s  -- print BAD tokens as-is
 
 -- | Format multi-line SLUG: each line prefixed with "' "
