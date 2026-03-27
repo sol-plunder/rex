@@ -11,6 +11,7 @@ module Rex.Rex
 where
 
 import qualified Rex.Tree2 as Tr
+import qualified Rex.String as Str
 
 import Rex.Lex    (Span (..))
 import Rex.Tree2  (Bracket (..), Leaf (..), Node (..), Shape (..), Tree (..), treePos)
@@ -80,9 +81,9 @@ runeCmp a b = compare (packRune a) (packRune b)
 leafToRex :: Span -> Leaf -> Rex
 leafToRex sp = \case
     L_WORD s -> LEAF sp WORD s
-    L_TRAD s -> stripTrad sp s
-    L_UGLY s -> stripUgly sp s
-    L_SLUG s -> LEAF sp SLUG (stripSlug s)
+    L_TRAD s -> tradToRex sp s
+    L_UGLY s -> uglyToRex sp s
+    L_SLUG s -> LEAF sp SLUG (Str.stripSlug s)
     L_BAD  s -> classifyBadLeaf sp s
 
 -- | Classify a BAD leaf from the lexer by examining its content
@@ -100,183 +101,19 @@ classifyBadLeaf sp s = LEAF sp (BAD reason) s
 
     isSuffixOf xs ys = isPrefixOf (reverse xs) (reverse ys)
 
--- | Process a TRAD string: classify as TAPE (page-style) or CORD (span-style).
--- TAPE: starts with newline after opening quote, strip depth from closing quote indent
--- CORD: inline content, continuation lines must indent to content column
-stripTrad :: Span -> String -> Rex
-stripTrad sp s =
-    let col = spanCol sp
-    in case s of
-        '"':afterOpen -> case afterOpen of
-            '\n':rest -> stripTape sp s col rest
-            _         -> stripCord sp s col afterOpen
-        _ -> LEAF sp CORD s  -- no quotes, leave as is (shouldn't happen)
-  where
-    -- TAPE: strip depth comes from terminator line's indentation
-    stripTape :: Span -> String -> Int -> String -> Rex
-    stripTape sp' orig _openCol content =
-        let contentLines = lines content
-        in case reverse contentLines of
-            [] -> LEAF sp' TAPE ""
-            (lastLine:revRest) ->
-                let (spaces, afterSpaces) = span (== ' ') lastLine
-                    stripDepth = length spaces
-                    bodyLines = reverse revRest
-                in if afterSpaces == "\"" && all (validPageLine stripDepth) bodyLines
-                   then let stripped = map (unescapeQuotes . stripLineForPage stripDepth) bodyLines
-                        in LEAF sp' TAPE (unlines' stripped)
-                   else LEAF sp' (BAD InvalidPage) orig
+-- | Convert a TRAD string to Rex, using Rex.String for extraction
+tradToRex :: Span -> String -> Rex
+tradToRex sp s = case Str.stripTrad sp s of
+    (True,  Str.StripOK content) -> LEAF sp TAPE content
+    (False, Str.StripOK content) -> LEAF sp CORD content
+    (_,     Str.StripBad reason) -> LEAF sp (BAD reason) s
 
-    -- Check if a line is valid for PAGE: blank lines are always valid,
-    -- non-blank lines must have at least `depth` leading spaces
-    validPageLine :: Int -> String -> Bool
-    validPageLine depth line
-        | all (== ' ') line = True
-        | otherwise         = all (== ' ') (take depth line) && length line >= depth
-
-    -- CORD: strip depth is content column (after opening quote)
-    -- Continuation lines must be indented at least to the content column
-    stripCord :: Span -> String -> Int -> String -> Rex
-    stripCord sp' orig openCol content =
-        let body = removeClosingQuote content
-            contentCol = openCol  -- column where content starts (right after ")
-        in case lines body of
-            []     -> LEAF sp' CORD ""
-            [single] -> LEAF sp' CORD (unescapeQuotes single)
-            (_:rest) ->
-                if all (validSpanLine contentCol) rest
-                then LEAF sp' CORD (stripContinuations contentCol body)
-                else LEAF sp' (BAD InvalidSpan) orig
-
-    -- Check if a continuation line is valid for SPAN
-    validSpanLine :: Int -> String -> Bool
-    validSpanLine depth line =
-        length (takeWhile (== ' ') line) >= depth
-
-    removeClosingQuote str =
-        case reverse str of
-            '"':inner -> reverse inner
-            _         -> str  -- unclosed, return as-is
-
-    -- Strip a line for PAGE: blank lines pass through, others get stripped
-    stripLineForPage :: Int -> String -> String
-    stripLineForPage depth line
-        | all (== ' ') line = ""
-        | otherwise         = stripN depth line
-
-    unlines' [] = ""
-    unlines' xs = init (unlines xs)
-
--- | Process an UGLY string: classify as PAGE or SPAN, then strip accordingly.
--- PAGE: starts with newline after ticks, strip depth determined by terminator indent
--- SPAN: inline content, strip continuation lines based on content column
-stripUgly :: Span -> String -> Rex
-stripUgly sp s =
-    let col = spanCol sp
-        (ticks, afterOpen) = span (== '\'') s
-        n = length ticks
-    in if n >= 2
-       then case afterOpen of
-                '\n':rest -> stripPage n rest
-                _         -> stripSpan col n afterOpen
-       else LEAF sp SPAN s  -- shouldn't happen, but fallback
-  where
-    -- PAGE: strip depth comes from terminator line's indentation
-    stripPage :: Int -> String -> Rex
-    stripPage n content =
-        let contentLines = lines content
-        in case reverse contentLines of
-            [] -> LEAF sp PAGE ""
-            (lastLine:revRest) ->
-                let closeTicks = replicate n '\''
-                    (spaces, afterSpaces) = span (== ' ') lastLine
-                    stripDepth = length spaces
-                    bodyLines = reverse revRest
-                in if afterSpaces == closeTicks && all (validPageLine stripDepth) bodyLines
-                   then let stripped = map (stripLineForPage stripDepth) bodyLines
-                        in LEAF sp PAGE (unlines' stripped)
-                   else LEAF sp (BAD InvalidPage) s
-
-    -- Check if a line is valid for PAGE: blank lines are always valid,
-    -- non-blank lines must have at least `depth` leading spaces
-    validPageLine :: Int -> String -> Bool
-    validPageLine depth line
-        | all (== ' ') line = True  -- blank lines are always valid
-        | otherwise         = all (== ' ') (take depth line) && length line >= depth
-
-    -- SPAN: strip depth is content column (after ticks)
-    -- Continuation lines must be indented at least to the content column
-    stripSpan :: Int -> Int -> String -> Rex
-    stripSpan openCol n content =
-        let closeTicks = replicate n '\''
-            body = removeClosing closeTicks content
-            contentCol = openCol + n - 1  -- column where content starts
-        in case lines body of
-            []     -> LEAF sp SPAN ""
-            [single] -> LEAF sp SPAN (unescapeQuotes single)
-            (first:rest) ->
-                if all (validSpanLine contentCol) rest
-                then LEAF sp SPAN (stripContinuations contentCol body)
-                else LEAF sp (BAD InvalidSpan) s
-
-    -- Check if a continuation line is valid for SPAN:
-    -- Must have at least `depth` leading spaces (or be the closing ticks)
-    validSpanLine :: Int -> String -> Bool
-    validSpanLine depth line =
-        length (takeWhile (== ' ') line) >= depth
-
-    removeClosing ticks str =
-        let revTicks = reverse ticks
-            revStr = reverse str
-        in if take (length ticks) revStr == revTicks
-           then reverse (drop (length ticks) revStr)
-           else str
-
-    -- Strip a line for PAGE: blank lines pass through, others get stripped
-    stripLineForPage :: Int -> String -> String
-    stripLineForPage depth line
-        | all (== ' ') line = ""  -- blank line -> empty
-        | otherwise         = stripN depth line
-
-    unlines' [] = ""
-    unlines' xs = init (unlines xs)
-
--- | Strip a SLUG string: remove "' " prefix from each line.
-stripSlug :: String -> String
-stripSlug = unlines' . map stripSlugLine . lines
-  where
-    stripSlugLine s = case s of
-        '\'':' ':rest -> rest
-        '\'':"" -> ""  -- empty slug line
-        '\'':rest -> rest  -- slug line with no space after '
-        _ -> s  -- shouldn't happen, but leave as is
-
-    unlines' [] = ""
-    unlines' xs = init (unlines xs)
-
--- | Strip leading whitespace from continuation lines.
--- The first line is left as-is, subsequent lines have `col` spaces stripped.
-stripContinuations :: Int -> String -> String
-stripContinuations col s =
-    case lines s of
-        [] -> ""
-        [single] -> unescapeQuotes single
-        (first:rest) -> unlines' (unescapeQuotes first : map (unescapeQuotes . stripN col) rest)
-  where
-    unlines' [] = ""
-    unlines' xs = init (unlines xs)
-
--- | Unescape doubled quotes ("") to single quotes (")
-unescapeQuotes :: String -> String
-unescapeQuotes [] = []
-unescapeQuotes ('"':'"':rest) = '"' : unescapeQuotes rest
-unescapeQuotes (c:rest) = c : unescapeQuotes rest
-
--- | Strip up to n leading spaces from a string.
-stripN :: Int -> String -> String
-stripN 0 s = s
-stripN n (' ':rest) = stripN (n-1) rest
-stripN _ s = s  -- non-space or end of string
+-- | Convert an UGLY string to Rex, using Rex.String for extraction
+uglyToRex :: Span -> String -> Rex
+uglyToRex sp s = case Str.stripUgly sp s of
+    (True,  Str.StripOK content) -> LEAF sp PAGE content
+    (False, Str.StripOK content) -> LEAF sp SPAN content
+    (_,     Str.StripBad reason) -> LEAF sp (BAD reason) s
 
 
 -- Quip Conversion -------------------------------------------------------------
@@ -305,47 +142,9 @@ quipToRex src blockOff tree@(Tree S_QUIP sp _) =
     let qoff = Tr.treeOff tree
         qlen = Tr.treeLen tree
         s = take qlen (drop (qoff - blockOff) src)
-        s' = normalizeQuipIndent s
+        s' = Str.normalizeQuipIndent s
     in LEAF sp QUIP s'
 quipToRex _ _ t = error $ "quipToRex: not a quip: " ++ show (treeShape t)
-
--- | Normalize indentation for multi-line quips.
--- Strips the minimum indent from all non-empty continuation lines, so that
--- the least-indented line ends up at column 0 (relative to the quip start).
--- This allows "jagged" input where lines are typed at column 0 to normalize
--- to the same representation as properly-indented input.
-normalizeQuipIndent :: String -> String
-normalizeQuipIndent s
-    | '\n' `notElem` s = s  -- single-line, no change
-    | otherwise =
-        let (firstLine, rest) = break (== '\n') s
-            contLines = splitLines (drop 1 rest)  -- drop the '\n'
-            minIndent = minimum (maxBound : map lineIndent (filter (not . isBlankLine) contLines))
-            stripped = map (stripIndent minIndent) contLines
-        in firstLine ++ concatMap ('\n':) stripped
-
--- | Split a string into lines, preserving empty lines
-splitLines :: String -> [String]
-splitLines "" = []
-splitLines s  = let (l, rest) = break (== '\n') s
-                in l : case rest of
-                         ""     -> []
-                         (_:rs) -> splitLines rs
-
--- | Count leading spaces in a line
-lineIndent :: String -> Int
-lineIndent = length . takeWhile (== ' ')
-
--- | Check if a line is blank (empty or only whitespace)
-isBlankLine :: String -> Bool
-isBlankLine = all (`elem` " \t")
-
--- | Strip n spaces from the beginning of a line
-stripIndent :: Int -> String -> String
-stripIndent 0 s = s
-stripIndent n s = case s of
-    (' ':rest) -> stripIndent (n-1) rest
-    _          -> s  -- fewer spaces than expected, or non-space char
 
 
 -- Top-Level Conversion --------------------------------------------------------

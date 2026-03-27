@@ -26,6 +26,7 @@ library
       Rex.Lex
       Rex.Tree2
       Rex.Error
+      Rex.String
       Rex.Rex
       Rex.PrintRex
       Rex.PrintRexTest
@@ -51,6 +52,7 @@ executable rex
       Rex.Lex
       Rex.Tree2
       Rex.Error
+      Rex.String
       Rex.Rex
       Rex.PrintRex
       Rex.PrintRexTest
@@ -75,6 +77,7 @@ test-suite print-rex-test
       Rex.Lex
       Rex.Tree2
       Rex.Error
+      Rex.String
       Rex.Rex
       Rex.PDoc
       Rex.PrintRex
