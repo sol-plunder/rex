@@ -54,6 +54,7 @@ executable rex
       Rex.Error
       Rex.String
       Rex.Rex
+      Rex.CLI
       Rex.PrintRex
       Rex.PrintRexTest
       Rex.PDoc

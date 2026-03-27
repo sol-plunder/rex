@@ -7,11 +7,8 @@ import System.Exit    (exitFailure)
 import System.IO      (hPutStrLn, stderr)
 import System.Environment (getArgs)
 
-import qualified Rex.Lex   as Lex
-import qualified Rex.Tree2 as Tree2
-import qualified Rex.Rex   as Rex
-import qualified Rex.PrintRex      as PrintRex
-import qualified Rex.PrintRexTest  as PrintRexTest
+import qualified Rex.CLI          as CLI
+import qualified Rex.PrintRexTest as PrintRexTest
 
 usage :: String
 usage = unlines
@@ -30,11 +27,11 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ["lex"]              -> Lex.lexMain
-        ["tree"]             -> Tree2.treeMain
-        ["rex"]              -> Rex.rexMain
-        ["check"]            -> Rex.checkMain
-        ["pretty"]           -> PrintRex.prettyRexMain False
-        ["pretty", "--debug"] -> PrintRex.prettyRexMain True
-        ["rex-test"]         -> PrintRexTest.printRexTestMain
-        _                    -> hPutStrLn stderr usage >> exitFailure
+        ["lex"]               -> CLI.lexMain
+        ["tree"]              -> CLI.treeMain
+        ["rex"]               -> CLI.rexMain
+        ["check"]             -> CLI.checkMain
+        ["pretty"]            -> CLI.prettyRexMain False
+        ["pretty", "--debug"] -> CLI.prettyRexMain True
+        ["rex-test"]          -> PrintRexTest.printRexTestMain
+        _                     -> hPutStrLn stderr usage >> exitFailure

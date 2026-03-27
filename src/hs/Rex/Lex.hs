@@ -4,7 +4,6 @@
 module Rex.Lex
     ( TokTy(..), Tok(..), Span(..)
     , lexRex, bsplit, tokSpan
-    , lexMain
     )
 where
 
@@ -236,39 +235,3 @@ bsplit = go OUTSIDE [] 0 False False
 
 isContent :: TokTy -> Bool
 isContent = \case EOL -> False; WYTE -> False; EOF -> False; EOB -> False; _ -> True
-
-
--- Main ------------------------------------------------------------------------
-
-ppToks :: [Tok] -> String
-ppToks ts =
-  let wTy  = maximum (3 : map (length . show . ty) ts)
-      wLin = maximum (1 : map (length . show . lin) ts)
-      wCol = maximum (1 : map (length . show . col) ts)
-  in concatMap (ppTok wTy wLin wCol) ts
-
-ppTok :: Int -> Int -> Int -> Tok -> String
-ppTok wTy wLin wCol t =
-  let hdr = padR wTy (show (ty t))
-         ++ "  "
-         ++ padL wLin (show (lin t))
-         ++ ":"
-         ++ padL wCol (show (col t))
-         ++ "  "
-         ++ padL 4 (show (off t))
-         ++ "  "
-         ++ padL 3 (show (len t))
-         ++ "  "
-      shown = show (text t)
-      ls    = lines shown
-  in case ls of
-       []     -> hdr ++ "\"\"" ++ "\n"
-       (l:rs) -> hdr ++ l ++ "\n"
-              ++ concatMap (\x -> replicate (length hdr) ' ' ++ x ++ "\n") rs
-
-padR, padL :: Int -> String -> String
-padR w x = x ++ replicate (max 0 (w - length x)) ' '
-padL w x = replicate (max 0 (w - length x)) ' ' ++ x
-
-lexMain :: IO ()
-lexMain = getContents >>= putStrLn . ppToks . bsplit . lexRex

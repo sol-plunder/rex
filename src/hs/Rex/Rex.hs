@@ -5,7 +5,6 @@ module Rex.Rex
     ( Rex(..), LeafShape(..), Color(..), ppRex
     , rexSpan, noSpan
     , rexFromTree, rexFromBlockTree
-    , rexMain, checkMain
     , collectRexErrors
     )
 where
@@ -443,54 +442,3 @@ collectRexErrors = go
         HEIR _ kids            -> concatMap go kids
         BLOC _ _ _ hd items    -> go hd ++ concatMap go items
         OPEN _ _ kids          -> concatMap go kids
-
-
---- Main -----------------------------------------------------------------------
-
-rexMain :: IO ()
-rexMain = do
-  src <- getContents
-  let results = Tr.parseRex src
-  mapM_ (\(slice, tree) ->
-    case rexFromBlockTree slice tree of
-      Nothing -> pure ()
-      Just r  -> putStrLn (ppRex r)
-    ) results
-
-checkMain :: IO ()
-checkMain = do
-    src <- getContents
-    let results = Tr.parseRex src
-        allErrors = concatMap (\(slice, tree) ->
-            case rexFromBlockTree slice tree of
-                Nothing -> []
-                Just r  -> collectRexErrors r
-            ) results
-    if null allErrors
-       then putStrLn "No errors found."
-       else mapM_ (putStrLn . formatError (Just src)) allErrors
-  where
-    formatError mSrc (RexError sp reason txt) =
-        let loc = show (spanLin sp) ++ ":" ++ show (spanCol sp)
-            msg = reasonMessage reason
-            preview = case mSrc of
-                Nothing  -> show txt
-                Just s -> showContext s sp
-        in loc ++ ": error: " ++ msg ++ "\n" ++ preview
-
-    reasonMessage InvalidChar       = "invalid character"
-    reasonMessage UnclosedTrad      = "unclosed string literal"
-    reasonMessage UnclosedUgly      = "unclosed multi-line string"
-    reasonMessage MismatchedBracket = "mismatched bracket"
-    reasonMessage InvalidPage       = "invalid page string indentation"
-    reasonMessage InvalidSpan       = "invalid span string indentation"
-
-    showContext src sp =
-        let srcLines = lines src
-            lineNum = spanLin sp
-            colNum = spanCol sp
-        in if lineNum > 0 && lineNum <= length srcLines
-           then let line = srcLines !! (lineNum - 1)
-                    pointer = replicate (colNum - 1) ' ' ++ "^"
-                in "  " ++ line ++ "\n  " ++ pointer
-           else ""

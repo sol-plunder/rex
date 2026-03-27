@@ -16,7 +16,6 @@ module Rex.PrintRex
     , printRexColor
     , printRexWith
     , rexDoc
-    , prettyRexMain
     , ColorScheme(..)
     , PrintConfig(..)
     , defaultConfig
@@ -25,8 +24,6 @@ module Rex.PrintRex
 
 import Rex.Rex
 import Rex.PDoc
-import Rex.Tree2 (parseRex)
-import System.IO (hIsTerminalDevice, stdout)
 
 
 -- Configuration ----------------------------------------------------------------
@@ -703,26 +700,3 @@ bracketChars PAREN = ('(', ')')
 bracketChars BRACK = ('[', ']')
 bracketChars CURLY = ('{', '}')
 bracketChars CLEAR = (' ', ' ')  -- unused; CLEAR is handled above
-
-
--- Main --------------------------------------------------------------------------
-
--- | Read Rex source from stdin, parse to Rex, and pretty-print using
--- the PDoc layout engine. Each top-level input is separated by a blank line.
--- Uses colors when stdout is a terminal.
-prettyRexMain :: Bool -> IO ()
-prettyRexMain debug = do
-    isTty <- hIsTerminalDevice stdout
-    let colors = if isTty then BoldColors else NoColors
-    let cfg = PrintConfig colors debug 30 50
-    src <- getContents
-    -- Force full input before parsing (avoid lazy IO issues with interactive input)
-    let !_ = length src
-    let results = parseRex src
-    mapM_ (\(slice, tree) ->
-        case rexFromBlockTree slice tree of
-            Nothing  -> pure ()
-            Just rex -> do
-                putStrLn (printRexWith cfg 80 rex)
-                putStrLn ""
-        ) results

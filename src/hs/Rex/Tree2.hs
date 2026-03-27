@@ -432,15 +432,3 @@ ppTree = go 0
     L_SLUG s -> s; L_BAD  s -> s
 
   indent n = replicate n ' '
-
-
--- Main ------------------------------------------------------------------------
-
-treeMain :: IO ()
-treeMain = do
-  src <- getContents
-  let results = parseRex src
-  mapM_ (\(s, t) -> do
-    putStrLn $ "--- input: " ++ show s
-    putStrLn $ ppTree t
-    ) results

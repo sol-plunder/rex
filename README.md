@@ -173,11 +173,7 @@ Build with `cabal build` and run as:
     echo 'f x = x + 1' | cabal run rex -- lex
     echo 'f x = x + 1' | cabal run rex -- tree
     echo 'f x = x + 1' | cabal run rex -- rex
-    echo 'f x = x + 1' | cabal run rex -- print
-
-There is also exploratory Haskell code in `Lib.hs` and `LowLib.hs` — earlier
-research into a type-safe clump representation and a Wadler-Lindig-based
-pretty-printer. This work is not yet connected to the main pipeline.
+    echo 'f x = x + 1' | cabal run rex -- pretty
 
 **A C implementation (`rex.c`)** — an earlier self-contained implementation.
 Somewhat stale relative to the Haskell codebase. Build with `make`:
@@ -190,24 +186,14 @@ Somewhat stale relative to the Haskell codebase. Build with `make`:
 The **lexer and parser** are solid in both implementations. The Haskell
 pipeline in particular is clean and well-structured.
 
-The **pretty-printer** is now functional. `Rex.PrintRex` uses a custom PDoc
-system that handles width-aware layout decisions. The printer produces
-reasonable output for real code, correctly handling:
+The **pretty-printer** is complete. `Rex.PrintRex` uses a custom PDoc
+system for width-aware layout decisions. The printer correctly handles:
 
 - Flat vs. vertical layout choices based on page width
 - Heir structures (vertically-aligned sibling poems)
-- Multi-line strings (PAGE, SLUG, TRAD)
+- Staircase layout for nested poems
+- Flow layout for closed children in poems
+- Multi-line strings (PAGE, SPAN, SLUG, TAPE, CORD)
 - Tight infix, prefix runes, and juxtaposition
 - Block mode with trailing runes
-
-Some edge cases remain (see `todo/` for known issues), but the printer is
-usable for round-tripping real Rex code.
-
-## Next Steps
-
-1. Harden the pretty-printer for remaining edge cases.
-2. Port the complete implementation to Reaver Scheme.
-3. Use the Reaver Scheme implementation as the foundation for a new
-   implementation of the Sire language in Rex, fully bootstrapped from
-   Plan Assembly rather than implemented in Haskell or loaded from a
-   binary.
+- Round-trip preservation of tree structure
