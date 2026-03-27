@@ -55,3 +55,17 @@ foo.x + bar.y
              , ports : [8000 , 8001 , 8002]
              }
 }
+
+=== aligned content in parens | 80
+  ( good
+  x y
+  )
+---
+(good x y)
+
+=== misaligned content in parens | 80
+  ( bad
+ x y
+  )
+---
+(bad x y)
