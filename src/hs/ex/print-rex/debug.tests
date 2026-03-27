@@ -92,7 +92,8 @@ b
 (+ a
 b)
 ---
-(⟨+ a⟩ b)
+(   ⟨+ a⟩
+ b)
 
 === block: poem eats items | 80 | debug
 f =

@@ -131,6 +131,10 @@
 -- When EXPR CLEAR contains OPEN children followed by siblings,
 -- newlines must be forced after the OPEN to prevent content merging
 
+=== open then sibling in parens | 40
+(   + a
+ b)
+
 === tricky open then sibling in expr | 40
 (    + foo
   bar

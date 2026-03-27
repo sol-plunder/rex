@@ -391,9 +391,11 @@ exprDoc cfg c kids =
                     then PCat (pdocText "«") (PCat content (pdocText "»"))
                     else content
         -- Bracketed: use PDent so children align after opening bracket
+        -- When there's an OPEN followed by siblings, use grouping for proper staircase
         _     -> let content = case kids of
                         [] -> PEmpty
-                        _  -> PDent (exprChildren cfg kids)
+                        _  | hasOpenThenMore kids -> PDent (openChildrenVertical cfg kids)
+                           | otherwise -> PDent (exprChildren cfg kids)
                  in PCat (cBracket cfg open) (PCat content (cBracket cfg close))
 
 -- | Render EXPR children for bracketed contexts.
@@ -402,10 +404,12 @@ exprChildren :: PrintConfig -> [Rex] -> PDoc
 exprChildren _   []     = PEmpty
 exprChildren cfg [k]    = rexDoc cfg k
 exprChildren cfg (k:ks) =
-    -- HEIR and SLUG always span multiple lines, so force newline after them.
+    -- OPEN, HEIR, and SLUG force newline when followed by siblings
+    -- to prevent the sibling from being captured by the OPEN's box.
     let sep = if forcesNewline k then PLine else PChoice pdocSpace PLine
     in PCat (rexDoc cfg k) (PCat sep (exprChildren cfg ks))
   where
+    forcesNewline (OPEN _ _ _)     = True
     forcesNewline (HEIR _ _)       = True
     forcesNewline (LEAF _ SLUG _)  = True
     forcesNewline _                = False
