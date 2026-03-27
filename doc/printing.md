@@ -21,10 +21,10 @@ without knowing anything about their semantics or conventions.
 
 ## How It Works
 
-The printer is given a Rex tree and a set of alternative representations at
-each node. It selects among those alternatives based on line width and ergonomic
-considerations — essentially solving a layout problem rather than a semantic
-one. This is a well-defined, language-agnostic task.
+The printer is given a Rex tree and renders it based on page width constraints.
+It selects among layout alternatives (flat vs vertical) based on whether content
+fits within the available width — essentially solving a layout problem rather
+than a semantic one. This is a well-defined, language-agnostic task.
 
 The key structural property is that the Rex tree shape determines most of what
 you want. A `BLOC` node says "put items on separate indented lines." An `OPEN`
@@ -44,32 +44,25 @@ structural constraints are the caller's responsibility. Rex is a partial data
 structure from the printer's perspective — valid in the sense of "produced by
 the parser" does not mean the same as "any value of the Rex type."
 
-## The Implementation Challenge
+## Implementation
 
-A previous version of Rex had a working pretty-printer that performed well.
-This version of Rex is more sophisticated — it allows complex expressions inside
-tightly nested forms — so the printer logic needs to be correspondingly more
-sophisticated.
+The printer is implemented in `Rex.PrintRex`, using the `Rex.PDoc` layout engine.
 
-The main technical challenge is that Rex's layout rules don't map cleanly onto
-existing pretty-printing systems (Wadler-Lindig, etc.). Standard combinators
-assume particular layout semantics that don't match Rex's poem/block/heir model.
-The printer needs its own layout engine that understands Rex's specific rules
-about indentation, heir alignment, and the interaction between tight and spaced
-forms.
+`Rex.PDoc` is a Wadler-style pretty-printing library extended with:
 
-`Lib.hs` contains the most developed attempt at this — a Wadler-Lindig-based
-engine with `Flow`/`paragraphs` grouping logic and slug-jogging for adjacent
-slugs — but it is not yet connected to the main pipeline and predates the
-current Rex IR.
+- **PStaircase** for reverse-staircase indentation patterns in rune poems
+- **PFlow** for greedy line-packing of closed children
+- **PNoFit** for marking inherently vertical constructs
 
-## Status
+The printer handles all Rex constructs including:
 
-- The dumb printer (`Rex.Print`) produces valid Rex output but makes no
-  aesthetic decisions about line width or layout alternatives.
-- `Lib.hs` has a real layout engine but is disconnected from the pipeline.
-- The C printer in `rex.c` has partial wide/tall logic but heir handling,
-  tight infix unwrapping, and juxtaposition wrapping are incomplete or buggy.
+- Flat vs vertical layout choices based on page width
+- Heir structures (vertically-aligned sibling poems)
+- Staircase layout for consecutive open children
+- Flow layout for closed children in poems
+- Multi-line strings (PAGE, SPAN, SLUG, TAPE, CORD)
+- Tight infix, prefix runes, and juxtaposition
+- Block mode with trailing runes
 
-The next step is to build a layout engine that understands Rex's own rules and
-can select among the alternative representations each node admits.
+See `note/printer-implementation.md` for detailed documentation of the
+printer's architecture and layout algorithms.

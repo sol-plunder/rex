@@ -24,7 +24,7 @@ blocks — is a different surface encoding of one of these three things.
 The syntactic richness is entirely in the encoding layer; the underlying
 tree structure is simple and uniform.
 
-The entire lexer, parser, and pretty-printer fits in roughly 1500 lines of C — orders of magnitude smaller than the parsers of languages like Haskell or Rust — yet it is expressive enough to emulate their syntax.
+The entire lexer, parser, and pretty-printer is compact — orders of magnitude smaller than the parsers of languages like Haskell or Rust — yet it is expressive enough to emulate their syntax.
 
 ## Design Philosophy
 

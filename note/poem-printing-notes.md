@@ -106,88 +106,48 @@ rules) create parsing boxes that could capture siblings.
 
 This means the staircase is only needed between open siblings.
 Mixed sequences work naturally — closed children use `PLine` at
-the same column, open children use backstep:
-
-    + a
-      | x y
-      | z w
-
-Here `a` is closed (no box), so `| x y` at the same column is
-safe. But `| x y` IS open, so `| z w` must be at a lesser column.
-Wait — in this example they're at the same column, which is wrong.
-The correct output would be:
+the same column, open children use the staircase:
 
     + a
           | x y
       | z w
 
-The closed child `a` can be at any column. The first open child
-must be pushed right by the total backstep of all subsequent open
-siblings.
+Here `a` is closed (no box). The first open child `| x y` is at
+column 6, the second `| z w` at column 2 — a descending staircase
+among just the open children.
 
-## PBackstep: The Mechanism
+## PStaircase: The Mechanism
 
-PDoc provides `PBackstep` for computing the staircase dynamically.
-The key insight: to know how far right the first sibling goes, you
-need to know how many open siblings follow it. But the printer
-builds the document tree before rendering, so it can't count ahead.
-PBackstep solves this by rendering later siblings first during the
-layout pass.
+PDoc provides `PStaircase` for rendering consecutive open children
+in a descending staircase pattern. Given a list of documents:
 
-    PBackstep b x y
+    pdocStaircase [doc1, doc2, doc3]
 
-Renders y first to determine its accumulated backstep. Then renders
-x at indent `i + backstep(y) + b`. Returns `backstep(y) + b` as
-its own backstep for the next level up.
+It renders them with doc1 at the deepest indent, doc2 less indented,
+and doc3 at the base indent:
 
-The `pdocBackstep` combinator wraps this:
+            doc1
+        doc2
+    doc3
 
-    pdocBackstep x y = PBackstep 4 (PCat PLine x) y
+The key properties:
 
-`PLine` before x ensures x starts on a new line at the computed
-indent. `b=4` is the step size — each level adds 4 columns.
+1. **Inside-out rendering**: Later items are rendered first to
+   determine the overall shape, then earlier items are positioned.
 
-For three siblings, the chain is:
+2. **Backstep isolation**: The staircase returns `backstep=0` so
+   its internal indentation doesn't leak to surrounding context.
+   Multiple staircases compose cleanly without interference.
 
-    pdocBackstep poem1 (pdocBackstep poem2 (PLine <> poem3))
-
-Rendering works inside-out:
-- poem3 at base indent i, backstep = 0
-- poem2 at indent i + 0 + 4 = i+4, backstep = 4
-- poem1 at indent i + 4 + 4 = i+8, backstep = 8
-
-Result: poem1 at i+8, poem2 at i+4, poem3 at i. Staircase.
-
-## The Last Sibling Needs PLine
-
-There is a subtlety: `pdocBackstep` puts `PLine` before x (the
-earlier sibling), and y (the later sibling) is stitched as a
-suffix after x's rendered output. If the last sibling in the
-chain is just `printNode poem3` with no `PLine`, it gets
-concatenated directly onto the previous sibling's last line of
-output — producing garbage like `dddd| e f`.
-
-The fix: after the first open child triggers backstep, ALL
-subsequent children (including the last) get `PLine` before them.
-This is handled by `poemOpenRest`, a separate function used as the
-continuation after the first open sibling:
-
-    poemChildrenVertical (n:ns)
-        | isOpen n  = pdocBackstep (printNode n) (poemOpenRest ns)
-        | otherwise = PCat (printNode n) (PCat PLine (...))
-
-    poemOpenRest [n]    = PCat PLine (printNode n)  -- last gets PLine
-    poemOpenRest (n:ns)
-        | isOpen n  = pdocBackstep (printNode n) (poemOpenRest ns)
-        | otherwise = PCat PLine (PCat (printNode n) (poemOpenRest ns))
+3. **Step size**: Each level is 4 columns less indented than the
+   previous one.
 
 ## The Rune's Line
 
-With `pdocBackstep`, the first open child has `PLine` before it
-(from the `PCat PLine x` inside `pdocBackstep`). This means the
-rune appears alone on its line when all children are open:
+When all children are open, the first child starts on a new line
+(from PStaircase's `PLine`), leaving the rune alone:
 
-    + 
+    +
               | a b
           | c d
       | e f
@@ -215,5 +175,5 @@ offered when it produces output that re-parses correctly:
     + a * b c       OK: * b c is the last child, inlineable
     + * a b * c d   NOT inlineable: first child is open
 
-When not inlineable, only the vertical form (with backstep) is
+When not inlineable, only the vertical form (with staircase) is
 produced — no `PChoice`, no chance of incorrect flat output.

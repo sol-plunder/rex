@@ -96,18 +96,20 @@ constructs like OPEN, HEIR, and SLUG.
 
 #### PStaircase: Reverse-Staircase Layout
 
-`PStaircase step items` renders items in a reverse-staircase pattern
-where the first item appears at the deepest indentation and each
-subsequent item is dedented by `step` columns (typically 4).
+`PStaircase step items` renders consecutive open children in a
+reverse-staircase pattern: the first item appears at the deepest
+indentation, and each subsequent item is dedented by `step` columns
+(typically 4), stepping back toward the base indent.
 
 ```
-| if cond1 result1
-       | if cond2 result2
-              | fallback
+        + first
+    + second
++ third
 ```
 
 The first item may inline with spaces if it fits; subsequent items
-always get newlines.
+get newlines and progressively less indentation. This creates the
+characteristic "stepping back" pattern of nested rune poems.
 
 #### PFlow: Flow Layout
 
@@ -292,20 +294,19 @@ poem chains.
 
 #### Staircase Layout
 
-When OPEN children are nested, they form a staircase:
+When consecutive open siblings appear, they form a reverse-staircase.
+The first open item may inline; subsequent items step back toward base:
 
 ```
-| if cond1 result1
-       | if cond2 result2
-              | fallback
++ x     + nested1
+    + nested2
+  a b c
 ```
 
-The first child of a staircase may inline with spaces if it fits:
-
-```
-| foo | bar baz     -- bar inlines with spaces
-           | qux    -- qux on newline, dedented
-```
+Here `+ x` is at base, `+ nested1` inlines to the right, `+ nested2`
+steps back (column 4), then closed items `a b c` flow at column 2.
+The staircase "steps back" from the deepest inline position toward
+base indent as you read down the page.
 
 #### Heir Collision Detection
 
