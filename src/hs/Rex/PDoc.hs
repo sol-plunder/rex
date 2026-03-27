@@ -151,12 +151,10 @@ pdocRenderSDoc w =
                 firstItemIndent = i + totalSteps
                 canInlineFirst = firstItemIndent >= k  -- target is ahead of current col
                 buildDoc [] _depth _isFirst = best n k ds
-                buildDoc [item] _depth _isFirst =
-                    -- Last (or only) item at base indent - always newline
-                    best n k (DLCons i (PCat PLine item) ds)
                 buildDoc (item:rest) depth isFirst =
                     let itemIndent = i + depth
                         (_, restSDoc) = buildDoc rest (depth - step) False
+                        useNewline = best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
                     in if isFirst && canInlineFirst
                        then -- Try to inline first item with spaces
                             let spacesNeeded = max 1 (itemIndent - k)  -- at least 1 space
@@ -166,9 +164,9 @@ pdocRenderSDoc w =
                                then -- Fits! Use spaces instead of newline
                                     best n itemIndent (DLCons itemIndent (PCat spaces item) (DLSCons i PEmpty 0 restSDoc))
                                else -- Doesn't fit, use newline
-                                    best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
+                                    useNewline
                        else -- Not first item, always use newline
-                            best n k (DLCons itemIndent (PCat PLine item) (DLSCons i PEmpty 0 restSDoc))
+                            useNewline
             in (0, snd (buildDoc items totalSteps True))
 
         PFlow _maxW _isFirst [] ->
@@ -392,11 +390,10 @@ pdocSpaceOrLine x y = PCat x (PChoice (PCat pdocSpace y) (PCat PLine y))
 
 -- | Create a reverse-staircase layout for a list of open children.
 -- First item appears at deepest indent, last at base indent.
--- ALL items get newlines before them (PStaircase handles this).
+-- First item may inline with spaces if it fits; rest get newlines.
 -- Returns backstep=0, so multiple staircases don't leak into each other.
 pdocStaircase :: [PDoc] -> PDoc
 pdocStaircase []    = PEmpty
-pdocStaircase [x]   = PCat PLine x  -- single item still needs newline
 pdocStaircase items = PStaircase 4 items
 
 -- | Create a flow layout that packs items greedily onto lines.

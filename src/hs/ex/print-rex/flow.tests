@@ -34,6 +34,9 @@
 |
     | nested
   a b c
+---
+|    | nested
+  a b c
 
 === multi-heir edge case | 40
 | | nested
@@ -123,3 +126,14 @@
 ---
 | a bb ccc dddd
   eeeee f
+
+---- EXPR CLEAR WITH OPEN -----------------------------------------------
+-- When EXPR CLEAR contains OPEN children followed by siblings,
+-- newlines must be forced after the OPEN to prevent content merging
+
+=== tricky open then sibling in expr | 40
+(    + foo
+  bar
+,    + foo
+  bar
+)

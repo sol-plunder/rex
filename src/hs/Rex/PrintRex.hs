@@ -382,13 +382,39 @@ nestRestOutlined cfg r (k:ks) = PCat PLine (PCat (cRune cfg r) (PCat (PChar ' ')
 exprDoc :: PrintConfig -> Color -> [Rex] -> PDoc
 exprDoc cfg c kids =
     let (open, close) = bracketChars c
-        content = case kids of
-            [] -> PEmpty
-            _  -> PDent (pdocIntersperseFun pdocSpaceOrLine (map (rexDoc cfg) kids))
     in case c of
-        CLEAR | cfgDebug cfg -> PCat (pdocText "«") (PCat content (pdocText "»"))
-              | otherwise    -> content
-        _     -> PCat (cBracket cfg open) (PCat content (cBracket cfg close))
+        -- CLEAR: same layout problem as OPEN children - use grouping with
+        -- flow for closed items and staircase for open items.
+        -- First item is inline, rest get newlines.
+        CLEAR -> let content = exprChildrenClear cfg kids
+                 in if cfgDebug cfg
+                    then PCat (pdocText "«") (PCat content (pdocText "»"))
+                    else content
+        -- Bracketed: use PDent so children align after opening bracket
+        _     -> let content = case kids of
+                        [] -> PEmpty
+                        _  -> PDent (exprChildren cfg kids)
+                 in PCat (cBracket cfg open) (PCat content (cBracket cfg close))
+
+-- | Render EXPR children for bracketed contexts.
+-- Uses space-or-line between items, forcing newline after multi-line forms.
+exprChildren :: PrintConfig -> [Rex] -> PDoc
+exprChildren _   []     = PEmpty
+exprChildren cfg [k]    = rexDoc cfg k
+exprChildren cfg (k:ks) =
+    -- HEIR and SLUG always span multiple lines, so force newline after them.
+    let sep = if forcesNewline k then PLine else PChoice pdocSpace PLine
+    in PCat (rexDoc cfg k) (PCat sep (exprChildren cfg ks))
+  where
+    forcesNewline (HEIR _ _)       = True
+    forcesNewline (LEAF _ SLUG _)  = True
+    forcesNewline _                = False
+
+-- | Render EXPR CLEAR children. Same layout as OPEN children.
+exprChildrenClear :: PrintConfig -> [Rex] -> PDoc
+exprChildrenClear _   []   = PEmpty
+exprChildrenClear cfg [k]  = rexDoc cfg k
+exprChildrenClear cfg kids = PDent (openChildrenVertical cfg kids)
 
 -- | Flat-only version of exprDoc (uses rexDocFlat for children)
 exprDocFlat :: PrintConfig -> Color -> [Rex] -> PDoc
@@ -484,21 +510,9 @@ openChildrenFlat cfg = pdocIntersperse pdocSpace . map (rexDoc cfg)
 openChildrenVertical :: PrintConfig -> [Rex] -> PDoc
 openChildrenVertical _   []   = PEmpty
 openChildrenVertical cfg [k]  = rexDoc cfg k  -- single child: no staircase, inline
-openChildrenVertical cfg kids = renderGroups (groupChildren kids)
+openChildrenVertical cfg kids = renderGroups (groupChildrenImpl kids)
   where
-    -- Group children into runs of closed and open
-    groupChildren :: [Rex] -> [ChildGroup]
-    groupChildren [] = []
-    groupChildren xs =
-        let (closed, rest1) = span (not . isOpenRex) xs
-            (open,   rest2) = span isOpenRex rest1
-        in case (closed, open) of
-            ([], []) -> []
-            (cs, []) -> [ClosedGroup cs]
-            ([], os) -> OpenGroup os : groupChildren rest2
-            (cs, os) -> ClosedGroup cs : OpenGroup os : groupChildren rest2
-
-    -- Render groups. OpenGroup handles its own newlines.
+    -- Render groups. OpenGroup handles its own newlines via pdocStaircase.
     -- When OpenGroup has following groups, indent staircase to avoid heir collision.
     renderGroups :: [ChildGroup] -> PDoc
     renderGroups []     = PEmpty
@@ -509,23 +523,31 @@ openChildrenVertical cfg kids = renderGroups (groupChildren kids)
             PCat (renderGroup g) (renderGroups gs)
         (OpenGroup os, _) ->
             -- Open group with more items after: indent the staircase by 2
-            -- to leave room for following items at base indent
-            let indentedStaircase = pdocStaircase (map (\o -> PCat (pdocText "  ") (rexDoc cfg o)) os)
-            in PCat indentedStaircase (PCat PLine (renderGroups gs))
+            let indented = map (\o -> PCat (pdocText "  ") (rexDoc cfg o)) os
+            in PCat (pdocStaircase indented) (PCat PLine (renderGroups gs))
         _ ->
             PCat (renderGroup g) (PCat PLine (renderGroups gs))
 
-    -- Render a single group
     renderGroup :: ChildGroup -> PDoc
-    renderGroup (ClosedGroup cs) =
-        pdocFlow (cfgMaxFlow cfg) (map (rexDoc cfg) cs)
-    renderGroup (OpenGroup os) =
-        pdocStaircase (map (rexDoc cfg) os)
+    renderGroup (ClosedGroup cs) = pdocFlow (cfgMaxFlow cfg) (map (rexDoc cfg) cs)
+    renderGroup (OpenGroup os)   = pdocStaircase (map (rexDoc cfg) os)
 
 -- | Classification of children for grouping
 data ChildGroup
     = ClosedGroup [Rex]  -- consecutive closed children
     | OpenGroup   [Rex]  -- consecutive open children
+
+-- | Group children into runs of closed and open
+groupChildrenImpl :: [Rex] -> [ChildGroup]
+groupChildrenImpl [] = []
+groupChildrenImpl xs =
+    let (closed, rest1) = span (not . isOpenRex) xs
+        (open,   rest2) = span isOpenRex rest1
+    in case (closed, open) of
+        ([], []) -> []
+        (cs, []) -> [ClosedGroup cs]
+        ([], os) -> OpenGroup os : groupChildrenImpl rest2
+        (cs, os) -> ClosedGroup cs : OpenGroup os : groupChildrenImpl rest2
 
 
 -- HEIR: Vertical siblings at same column ----------------------------------------
