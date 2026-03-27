@@ -6,7 +6,7 @@
 --
 -- Round-trip test cases for Rex.PrintRex.
 --
--- Tests are loaded from src/hs/ex/print-rex/*.tests in the format:
+-- Tests are loaded from ex/*.tests in the format:
 --   === test name | width
 --   code that should round-trip exactly...
 --
@@ -174,7 +174,7 @@ printRexTestMain = printRexTestMainIO >>= \_ -> pure ()
 -- | Run tests, print results, and return success status
 printRexTestMainIO :: IO Bool
 printRexTestMainIO = do
-    let testDir = "src/hs/ex/print-rex"
+    let testDir = "ex"
     files <- listDirectory testDir
     let testFiles = sort [f | f <- files, takeExtension f == ".tests"]
     results <- mapM (runTestFile testDir) testFiles

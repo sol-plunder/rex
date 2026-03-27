@@ -32,7 +32,7 @@ library
       Rex.PrintRexTest
       Rex.PDoc
   other-modules:
-  hs-source-dirs:   src/hs
+  hs-source-dirs:   hs/lib
   ghc-options:      -Wall -Wcompat
   build-depends:
       base             >= 4.7 && < 5
@@ -47,7 +47,7 @@ library
 
 executable rex
   main-is:        Main.hs
-  hs-source-dirs: src/hs
+  hs-source-dirs: hs/app, hs/lib
   other-modules:
       Rex.Lex
       Rex.Tree2
@@ -73,7 +73,7 @@ executable rex
 test-suite print-rex-test
   type:           exitcode-stdio-1.0
   main-is:        PrintRexTestMain.hs
-  hs-source-dirs: src/hs
+  hs-source-dirs: hs/test, hs/lib
   other-modules:
       Rex.Lex
       Rex.Tree2
@@ -98,7 +98,7 @@ test-suite print-rex-test
 test-suite pdoc-test
   type:           exitcode-stdio-1.0
   main-is:        PDocTestMain.hs
-  hs-source-dirs: src/hs
+  hs-source-dirs: hs/test, hs/lib
   other-modules:
       Rex.PDoc
       Rex.PDocTest

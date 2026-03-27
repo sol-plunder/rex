@@ -156,10 +156,8 @@ downstream consumers.
 
 ## This Repository
 
-This is a research implementation containing two codebases.
-
-**A Haskell implementation (`src/hs/`)** — the primary implementation,
-structured as a sequence of passes each in a separate module:
+A Haskell implementation structured as a sequence of passes, each in a
+separate module:
 
 | Module        | Pass                                              |
 |---------------|---------------------------------------------------|
@@ -175,16 +173,9 @@ Build with `cabal build` and run as:
     echo 'f x = x + 1' | cabal run rex -- rex
     echo 'f x = x + 1' | cabal run rex -- pretty
 
-**A C implementation (`rex.c`)** — an earlier self-contained implementation.
-Somewhat stale relative to the Haskell codebase. Build with `make`:
-
-    echo 'f x = x + 1' | ./o.rex parse
-    echo 'f x = x + 1' | ./o.rex lex
-
 ## Status
 
-The **lexer and parser** are solid in both implementations. The Haskell
-pipeline in particular is clean and well-structured.
+The **lexer and parser** are solid and well-structured.
 
 The **pretty-printer** is complete. `Rex.PrintRex` uses a custom PDoc
 system for width-aware layout decisions. The printer correctly handles:
