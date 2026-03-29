@@ -63,6 +63,11 @@ line two
 ---
 (a ‹,b› ‹+c›)
 
+=== prefix binds tighter than infix | 80 | debug
+-x*y
+---
+⟪‹-x›*y⟫
+
 ---- COLUMN SENSITIVITY ------------------------------------------------------
 -- Poem and heir behavior depends on column positions
 

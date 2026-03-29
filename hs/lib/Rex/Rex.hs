@@ -250,6 +250,7 @@ convertClump src blockOff sp nodes = top (nodeToElem src blockOff <$> nodes)
   where
     top :: [Elem] -> Rex
     top [E_REX r] = r
+    top (E_RUNE r : E_REX x : rest) = top (E_REX (PREF sp r x) : rest)
     top (E_RUNE r : rest) = PREF sp r (top rest)
     top es = case juxt [] es of [E_REX r] -> r
                                 collapsed -> tight collapsed
