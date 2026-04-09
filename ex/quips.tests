@@ -12,7 +12,7 @@ f 'x y
 === quip of parens | 80
 '(a + b)
 
-=== quip of poem | 80
+=== quip terminated by whitespace | 80
 '+ a b
 
 === quip with tight rune | 80
