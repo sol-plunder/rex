@@ -26,7 +26,7 @@ a block.
     leaf   = WORD | TRAD | UGLY | SLUG | BAD
     node   = leaf | nest | quip
     clump  = CLMP? node (CLMP node)*
-    quip   = TICK clump | TICK poem
+    quip   = TICK clump
     nest   = BEGIN inner? END
     slot   = clump | poem
     inner  = block | (slot+ (FREE slot+)* FREE?)
@@ -138,9 +138,9 @@ Basically, you can use it to quote clumps:
 
     'x 'foo(x) 'x.y+z
 
-Or to quote poems:
+Balanced brackets can extend a quip across internal whitespace:
 
-    '+ a b
+    '+
      + a[b]
 
 Because of the lexical rules, a TICK is never followed by a space or
