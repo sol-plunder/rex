@@ -4,7 +4,7 @@ Lexemes:
     WYTE  -- non-newline whitespace
     BEGIN -- ( [ { or end-of-block
     END   -- ) ] } or end-of-block
-    CLMP  -- a rune with has clump-stuff after it (not space or end)
+    CLMP  -- a rune which is not followed by a wyte/eol/end
     FREE  -- a rune which is followed by a wyte/eol/end
     WORD  -- identifier (0, hi, hello)
     TRAD  -- "hello" (normal string)
