@@ -61,7 +61,7 @@ clumps, nests, quips, poems, blocks, items, and inputs
 A clump has a concept of a node, which is either a leaf, a quip, or
 something enclosed in nesting.
 
-A clump is a non-empty string of runes
+A clump is a non-empty string of forms with no spaces and no free runes.
 
     a +a a.b +a.b 
     () [] {} 'x
@@ -70,7 +70,7 @@ A clump is a non-empty string of runes
 
 A clump cannot ever end with a rune, a clump that is immediatly followed
 by a rune is not considered to be a clump.  This is not a clump, but a
-clump followed by a rune.
+clump followed by a rune.  This is handled by the lexee distinguishing between free runes (FREE = rune followed by whitespace, END, EOF) vs clumped runes (CLMP = rune not followed by whitespace, END, EOF).
 
    a.b,
 
@@ -80,14 +80,9 @@ as infix operators in nested notation.
     (3, 4, 5)
     (a: 1, b: 2)
 
-A clump can also never have more than one rune in a row, though the
-parser doesn't have to care about this case as it is lexically
-impossible. (any two runes smashed together would be lexed as one rune).
+A clump can also never have more than one rune in a row, simply because that is lexographically impossible (two runes conjoined without a space is lexed as a single rune).
 
-If we define RC as a rune which is not followed by a space, then clumps
-always have the form:
-
-    rc? node_ (rc node_+)*
+    CLMP? node_ (CLMP node_+)*
 
 ### Nests
 
@@ -218,10 +213,12 @@ This also has two items:
          a + a
        b + c + d
 
-(3 
-, + a b
-, 4
-)
+(TODO: what is this?)
+
+    (3 
+    , + a b
+    , 4
+    )
 
 This has only one item, because the first item starts a poem which
 eats the rest of the input
