@@ -1,6 +1,9 @@
 # Rex
 
-Rex (Runic Expressions) is a universal tree notation — a structural normalizer
+
+Rex combines the best syntactic ideas of Lisp (regularity, macros), Hoon (runes) and Haskell/Python (blocks, infix operators) into one coherent and beautiful system.
+
+Rex (Runic Expressions) is a universal tree notation — a metalanguage
 that sits beneath programming languages the way S-expressions sit beneath Lisp,
 but with human-friendly syntax. It is designed to serve as the foundational
 syntax layer for the Plunder ecosystem, where every language, configuration
