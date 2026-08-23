@@ -231,7 +231,7 @@ This produces `first line\nsecond line\nthird line` — leading spaces up to the
 
 ### QUIP Strings (`'...`)
 
-A tick followed by content, running until whitespace or end of expression:
+A tick followed by content, running until whitespace unless balanced brackets keep it open:
 
     'hello      ') the string "hello"
     'if         ') the string "if" — useful as a symbol

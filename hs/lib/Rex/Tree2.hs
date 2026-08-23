@@ -210,6 +210,8 @@ stepClump tok ctx rest = case ty tok of
                                   "{" -> Curly; _   -> Paren
         in SE_CTX (mkCtx (CT_NEST bk) (lin tok) (col tok) (off tok))
          : SE_CTX ctx : rest
+    QUIP ->
+        SE_QUIP (lin tok) (col tok) (off tok) : SE_CTX ctx : rest
     _ -> dispatch tok (pop (SE_CTX ctx : rest))
 
 
@@ -224,9 +226,8 @@ stepQuip tok qlin qcol qoff rest = case ty tok of
         pushInto (clmpNode tok) (lin tok) (off tok) (tokEnd tok)
           (openClump (lin tok) (col tok) (off tok) (SE_QUIP qlin qcol qoff : rest))
     FREE ->
-        let pos = freePos tok
-        in pushInto (freeNode tok) (lin tok) (off tok) (tokEnd tok)
-          (SE_CTX (mkCtx CT_POEM (lin tok) pos (off tok)) : SE_QUIP qlin qcol qoff : rest)
+        pushInto (freeNode tok) (lin tok) (off tok) (tokEnd tok)
+          (openClump (lin tok) (col tok) (off tok) (SE_QUIP qlin qcol qoff : rest))
     BEGIN ->
         let bk = case text tok of "(" -> Paren; "[" -> Brack
                                   "{" -> Curly; _   -> Paren
@@ -235,8 +236,8 @@ stepQuip tok qlin qcol qoff rest = case ty tok of
     QUIP ->
         SE_QUIP (lin tok) (col tok) (off tok)
           : openClump (lin tok) (col tok) (off tok) (SE_QUIP qlin qcol qoff : rest)
-    WYTE -> SE_QUIP qlin qcol qoff : rest
-    EOL  -> SE_QUIP qlin qcol qoff : rest
+    WYTE -> dispatch tok rest
+    EOL  -> dispatch tok rest
     END  -> dispatch tok rest
     _    -> dispatch tok rest
 

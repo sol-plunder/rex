@@ -18,7 +18,7 @@ Grammar:
     leaf   = WORD | TRAD | UGLY | SLUG | BAD
     node   = leaf | nest | quip
     clump  = CLMP? node (CLMP node)*
-    quip   = TICK clump | TICK poem
+    quip   = TICK clump
     nest   = BEGIN inner? END
     slot   = clump | poem
     inner  = block | (slot+ (FREE slot+)* FREE?)
